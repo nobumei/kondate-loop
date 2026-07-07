@@ -75,6 +75,16 @@ interface SyncConfig {
 - 競合は whole-blob の last-write-wins。push前に pull-before-push で新しいremoteを取り込む。
 - エクスポートJSONには SyncConfig を含めない(別キーのため自然に分離される)。
 
+## レシートOCR設定キー `kondate-loop-gemini` (v1.4で追加)
+
+```typescript
+// localStorage.getItem('kondate-loop-gemini') は文字列そのもの(Gemini APIキー)。JSON化しない。
+```
+
+- 値は Gemini APIキーの生文字列(空なら未設定)。設定タブの「レシートOCR(Gemini)」から保存/削除する。
+- `kondate-loop-sync` と同様に端末ローカル専用: 家族同期(stripForSync)対象外、エクスポートJSON(state由来)にも含まれない(別キーのため自然に分離される)。
+- OCR抽出結果は一時的な `ocrItems`(メモリ内のみ)を経由し、確認モーダルでチェックした品だけが `state.inventory` に追加される。抽出結果自体はlocalStorageに保存しない。
+
 ## マイグレーションルール
 - スキーマ変更時は `load()` 内で旧→新変換し、この表に追記する。
 
@@ -84,6 +94,7 @@ interface SyncConfig {
 | v1.1 | 家族同期レイヤー追加(AppState自体は不変、`kondate-loop-sync` キー新設) | 2026-07-07 |
 | v1.2 | Recipe.steps追加 / state.plan(まとめ献立+仕込み)追加 / 調理フィードバック | 2026-07-07 |
 | v1.3 | freq(3値)→freqDays(間隔日数)へ移行。load()/applyRemote()のmigrate()で自動変換 | 2026-07-07 |
+| v1.4 | レシートOCR(Gemini)追加。`kondate-loop-gemini`キー新設(AppState自体は不変) | 2026-07-07 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 部分一致(`includes`)を双方向で判定。

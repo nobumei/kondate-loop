@@ -16,7 +16,7 @@ AIは必ずここから1タスク選んで着手し、完了時に [x] を付け
 - [ ] PWA化(manifest.json + Service Worker)でオフライン・ホーム画面対応強化
 
 ## P2 — 拡張(Phase 2判断後)
-- [ ] レシートOCR(Claude API vision + 確認UI) → API_DESIGN.md 参照
+- [x] レシートOCR(Claude API vision + 確認UI) → API_DESIGN.md 参照 (Gemini API無料枠+確認UIで実装 2026-07-07。Claude API案は同ファイルのOCRパイプライン節を参照)
 - [ ] 栄養バランス表示(主要5群の充足ざっくり判定)
 - [ ] 特売食材の提案スコア加点
 - [x] 家族共有(あいことば方式の軽量同期で実装 2026-07-07。本格的なAuth移行はPhase 3のまま)

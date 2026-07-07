@@ -190,6 +190,11 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 .receipt-grid img{width:100%;height:110px;object-fit:cover;display:block}
 .receipt-grid figcaption{font-size:10px;color:var(--sub);padding:4px 7px;background:var(--card)}
 .receipt-grid .del{position:absolute;top:5px;right:5px;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:999px;width:24px;height:24px;font-size:12px}
+.receipt-grid .ocr-btn{display:block;width:100%;border:none;border-radius:0;background:var(--ghost-bg);color:var(--ink);font-weight:800;font-size:11px;padding:7px 4px}
+.receipt-grid .ocr-btn:disabled{opacity:.6}
+.ocr-item{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:11px;margin-bottom:10px}
+.ocr-item input[type=text],.ocr-item input[type=number],.ocr-item input[type=date],.ocr-item select{border:1.5px solid var(--line);border-radius:10px;padding:8px 9px;background:#fff;color:var(--ink)}
+.ocr-item .ocr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px}
 .stars button{background:none;border:none;font-size:19px;padding:2px;color:var(--amber)}
 .freq-seg{display:flex;background:var(--ghost-bg);border-radius:12px;margin-top:6px;padding:3px;gap:3px}
 .freq-seg button{flex:1;border:none;background:transparent;font-size:11px;font-weight:800;padding:7px 2px;color:var(--sub);border-radius:9px}
@@ -297,7 +302,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <div class="btn-row" style="margin-top:10px">
     <button class="btn small sub" onclick="openStockModal()">✍️ レシートを見ながら手動で在庫追加</button>
   </div>
-  <p style="font-size:11.5px;color:var(--sub);margin:4px 2px">※ OCR自動読み取りは次フェーズなの。今は画像を保存して、見ながら手動追加する運用なの〜</p>
+  <p style="font-size:11.5px;color:var(--sub);margin:4px 2px">※ 各レシートの「🔍 読み取り」でGemini APIによる自動抽出ができるの(設定タブでAPIキー登録が必要)。読み取り後は必ず確認モーダルでチェックしてから在庫に追加するの〜</p>
   <div class="receipt-grid" id="receiptGrid"></div>
 </section>
 
@@ -334,6 +339,17 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       <button class="btn small" id="syncToggleBtn" onclick="toggleSync()">同期を開始</button>
     </div>
     <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 同期されるのは在庫・レシピ・買い物リスト・設定。レシート画像は端末内のみなの。あいことばを知っている人は読み書きできるから、推測されにくい文字列にするの</p>
+  </div>
+  <h2>🔍 レシートOCR(Gemini)</h2>
+  <div class="card">
+    <div class="field" style="margin-bottom:8px">
+      <label>Gemini APIキー</label>
+      <input id="gemini-key" type="password" placeholder="AIza..." autocomplete="off">
+    </div>
+    <div class="btn-row" style="margin:0">
+      <button class="btn small" onclick="saveGeminiKey()">保存する</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ キーはこの端末にのみ保存されるの(家族同期・エクスポートには含まれないの)。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">キーを取得する ↗</a></p>
   </div>
   <h2>💾 データ</h2>
   <div class="card">
@@ -425,10 +441,21 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
 </div>
 
+<!-- レシートOCR確認モーダル -->
+<div class="modal-bg" id="ocrModal">
+  <div class="modal">
+    <h3>読み取り結果を確認</h3>
+    <div id="ocrItemsBox"></div>
+    <div class="btn-row"><button class="btn wide" id="ocrAddBtn" onclick="addOcrItemsToStock()">在庫に追加</button></div>
+    <button class="btn ghost wide" onclick="closeModal('ocrModal')">閉じる</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 /* ============ state ============ */
 const KEY='kondate-loop-v1';
+const GEMINI_MODEL='gemini-2.5-flash';   // 無料枠対象。変更する時はここだけ直す
 const SEED_RECIPES=[
  ['肉じゃが','主菜',30,[['牛こま切れ肉',200,'g'],['じゃがいも',3,'個'],['玉ねぎ',1,'個'],['にんじん',1,'本']],['じゃがいも・にんじんは一口大、玉ねぎはくし切り','油で肉→野菜の順に炒める','水・しょうゆ・みりん・砂糖で15分煮る','火を止めて味を含ませる']],
  ['鶏の照り焼き','主菜',20,[['鶏もも肉',300,'g'],['しょうゆ',2,'大さじ'],['みりん',2,'大さじ']],['鶏ももの水気を拭き、皮目から中火で焼く','裏返して蓋をして火を通す','しょうゆ・みりん・砂糖を加えて煮絡める']],
@@ -610,7 +637,9 @@ function renderReceipts(){
   document.getElementById('receiptGrid').innerHTML=state.receipts.map(r=>
     `<figure><img src="${r.dataUrl}" alt="レシート" onclick="viewReceipt('${r.id}')">
      <button class="del" onclick="delReceipt('${r.id}')">✕</button>
-     <figcaption>${r.addedAt}</figcaption></figure>`).join('')||'<div class="empty" style="grid-column:1/-1">まだレシートがないの。買い物したら撮ってなの〜📷</div>';
+     <figcaption>${r.addedAt}</figcaption>
+     <button class="ocr-btn" id="ocr-btn-${r.id}" onclick="runOcr('${r.id}')">🔍 読み取り</button>
+     </figure>`).join('')||'<div class="empty" style="grid-column:1/-1">まだレシートがないの。買い物したら撮ってなの〜📷</div>';
 }
 function delReceipt(id){state.receipts=state.receipts.filter(r=>r.id!==id);save();renderReceipts();}
 function viewReceipt(id){
@@ -620,6 +649,115 @@ function viewReceipt(id){
   bg.innerHTML=`<img src="${r.dataUrl}" style="max-width:100%;max-height:92vh;border-radius:8px" alt="レシート拡大">`;
   bg.onclick=()=>bg.remove();
   document.body.appendChild(bg);
+}
+
+/* ============ レシートOCR (Gemini) ============ */
+const GEMINI_KEY_STORAGE='kondate-loop-gemini';   // 端末ローカル専用。同期・エクスポート対象外
+function loadGeminiKey(){try{return localStorage.getItem(GEMINI_KEY_STORAGE)||'';}catch(e){return'';}}
+function saveGeminiKey(){
+  const k=document.getElementById('gemini-key').value.trim();
+  try{
+    if(k)localStorage.setItem(GEMINI_KEY_STORAGE,k);else localStorage.removeItem(GEMINI_KEY_STORAGE);
+  }catch(e){toast('キーの保存に失敗したの…');return;}
+  toast(k?'APIキーを保存したの🔑':'APIキーを削除したの');
+}
+function ocrPrompt(){
+  const today=new Date().toISOString().slice(0,10);
+  return`日本のスーパーのレシート画像から購入食材を抽出。name=一般的な食材名に正規化(例:「国産若鶏ﾓﾓ」→「鶏もも肉」)、qty=数量(不明なら1)、unit=個/g/本/袋等の推定、price=税込価格(円・不明ならnull)、expiryGuess=今日(${today})を基準にした賞味期限の推定 YYYY-MM-DD(生鮮3日/肉魚3日/乳製品7日/常温品1ヶ月目安、不明ならnull)、location=冷蔵/冷凍/常温の推定。食材以外(日用品・値引き行・小計等)は含めない。`;
+}
+async function runOcr(id){
+  const key=loadGeminiKey();
+  if(!key){toast('先に設定タブでGemini APIキーを登録してなの🔑');switchTab('settings');return;}
+  const r=state.receipts.find(x=>x.id===id);if(!r)return;
+  const btn=document.getElementById('ocr-btn-'+id);
+  if(btn){btn.disabled=true;btn.textContent='⏳読み取り中…';}
+  try{
+    const base64=(r.dataUrl.split(',')[1])||'';
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:ocrPrompt()}]}],
+        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{items:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER'},unit:{type:'STRING'},price:{type:'NUMBER',nullable:true},expiryGuess:{type:'STRING',nullable:true},location:{type:'STRING'}},required:['name','qty','unit']}}},required:['items']}}
+      })
+    });
+    if(!res.ok){
+      if(res.status===429)throw new Error('無料枠の上限。1分待ってなの');
+      if(res.status===401||res.status===403)throw new Error('APIキーを確認してなの');
+      throw new Error(`通信エラーなの(HTTP ${res.status})`);
+    }
+    const data=await res.json();
+    let items=[];
+    try{
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      items=JSON.parse(text).items||[];
+    }catch(e){items=[];}
+    openOcrModal(items);
+  }catch(e){
+    console.error(e);
+    toast(e.message||'読み取りに失敗したの…');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='🔍 読み取り';}
+  }
+}
+let ocrItems=[];
+function openOcrModal(items){
+  ocrItems=(items||[]).filter(it=>it&&it.name).map((it,i)=>({
+    idx:i,checked:true,
+    name:String(it.name),
+    qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
+    unit:it.unit?String(it.unit):'個',
+    price:(typeof it.price==='number')?it.price:null,
+    location:['冷蔵','冷凍','常温'].includes(it.location)?it.location:'冷蔵',
+    expiry:/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:null
+  }));
+  renderOcrModal();
+  openModal('ocrModal');
+}
+function renderOcrModal(){
+  const box=document.getElementById('ocrItemsBox');
+  if(!ocrItems.length){
+    box.innerHTML='<div class="empty">読み取れなかったの…手動で追加してなの</div>';
+    document.getElementById('ocrAddBtn').style.display='none';
+    return;
+  }
+  document.getElementById('ocrAddBtn').style.display='';
+  box.innerHTML=ocrItems.map(it=>`
+    <div class="ocr-item">
+      <div class="row">
+        <input type="checkbox" ${it.checked?'checked':''} onchange="ocrItems[${it.idx}].checked=this.checked;updateOcrAddBtn()" style="width:22px;height:22px;accent-color:var(--green);flex-shrink:0">
+        <input type="text" class="grow" value="${esc(it.name)}" oninput="ocrItems[${it.idx}].name=this.value" placeholder="食材名">
+        ${it.price!=null?`<span class="meta" style="white-space:nowrap">¥${it.price}</span>`:''}
+      </div>
+      <div class="ocr-grid">
+        <select onchange="ocrItems[${it.idx}].location=this.value">
+          <option ${it.location==='冷蔵'?'selected':''}>冷蔵</option>
+          <option ${it.location==='冷凍'?'selected':''}>冷凍</option>
+          <option ${it.location==='常温'?'selected':''}>常温</option>
+        </select>
+        <input type="number" inputmode="decimal" min="0" step="0.1" value="${it.qty}" oninput="ocrItems[${it.idx}].qty=parseFloat(this.value)||1" placeholder="数量">
+        <input type="text" value="${esc(it.unit)}" oninput="ocrItems[${it.idx}].unit=this.value" placeholder="単位">
+      </div>
+      <div class="ocr-grid" style="grid-template-columns:1fr">
+        <input type="date" value="${it.expiry||''}" onchange="ocrItems[${it.idx}].expiry=this.value||null">
+      </div>
+    </div>`).join('');
+  updateOcrAddBtn();
+}
+function updateOcrAddBtn(){
+  const btn=document.getElementById('ocrAddBtn');if(!btn)return;
+  const n=ocrItems.filter(it=>it.checked).length;
+  btn.textContent=`チェックした${n}品を在庫に追加`;
+}
+function addOcrItemsToStock(){
+  const checked=ocrItems.filter(it=>it.checked&&it.name.trim());
+  if(!checked.length){toast('1品以上チェックしてなの〜');return;}
+  const today=new Date().toISOString().slice(0,10);
+  checked.forEach(it=>state.inventory.push({
+    id:uid(),name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',
+    location:it.location,expiry:it.expiry||null,addedAt:today,memo:''
+  }));
+  save();renderStock();closeModal('ocrModal');
+  toast(`${checked.length}品を在庫に追加したの🧾`);
 }
 
 /* ============ 献立提案 ============ */
@@ -1182,6 +1320,7 @@ function renderAll(){
   });
   renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();
   if(state.current)renderSuggestion();
+  const gk=document.getElementById('gemini-key');if(gk)gk.value=loadGeminiKey();
 }
 renderAll();
 renderSyncUI();
