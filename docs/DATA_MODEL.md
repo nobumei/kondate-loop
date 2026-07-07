@@ -57,6 +57,7 @@ interface Settings {
   shoppingDays: number[];   // 0=日..6=土
   shoppingLog: string[];    // 買い物した日付の配列
   stores: { name: string; url: string; memo: string }[];
+  normDict: Record<string,string>;  // v1.5: 食材名の正規化辞書(別名→正規名)。ユーザー登録分のみ。家族同期対象
 }
 ```
 
@@ -85,6 +86,19 @@ interface SyncConfig {
 - `kondate-loop-sync` と同様に端末ローカル専用: 家族同期(stripForSync)対象外、エクスポートJSON(state由来)にも含まれない(別キーのため自然に分離される)。
 - OCR抽出結果は一時的な `ocrItems`(メモリ内のみ)を経由し、確認モーダルでチェックした品だけが `state.inventory` に追加される。抽出結果自体はlocalStorageに保存しない。
 
+## チュートリアル既読フラグ `kondate-loop-tutorial-seen` (v1.5で追加)
+
+- 値は `'1'`(文字列)固定。存在すれば既読、未設定なら初回起動とみなして使い方モーダルを自動表示する。
+- 端末ローカル専用: `kondate-loop-v1` とは別キーのため、家族同期・エクスポートJSONの対象外。
+
+## 食材名の正規化辞書 (v1.5で追加)
+
+- 組み込み辞書 `BUILTIN_NORM_DICT`(コード内定数、約20組)と、ユーザー登録分 `state.settings.normDict` の2層構成。
+- `normalizeName(s)`: trim → 組み込み辞書 → ユーザー辞書、の順に適用して正規名を返す。
+- `inStock()` は両辺(在庫名・材料名)を `normalizeName()` してから部分一致判定する。保存済みデータ自体は書き換えない(非破壊)。
+- レシートOCR結果(`openOcrModal`)の食材名にも初期値として適用する(モーダル上で編集可能)。
+- ユーザー登録分は `state.settings.normDict` に載るため、家族同期・エクスポートJSONの対象に含まれる。
+
 ## マイグレーションルール
 - スキーマ変更時は `load()` 内で旧→新変換し、この表に追記する。
 
@@ -95,8 +109,9 @@ interface SyncConfig {
 | v1.2 | Recipe.steps追加 / state.plan(まとめ献立+仕込み)追加 / 調理フィードバック | 2026-07-07 |
 | v1.3 | freq(3値)→freqDays(間隔日数)へ移行。load()/applyRemote()のmigrate()で自動変換 | 2026-07-07 |
 | v1.4 | レシートOCR(Gemini)追加。`kondate-loop-gemini`キー新設(AppState自体は不変) | 2026-07-07 |
+| v1.5 | Settings.normDict追加(食材名の正規化辞書。migrate()で既存データに補完)。`kondate-loop-tutorial-seen`キー新設 | 2026-07-08 |
 
 ## 在庫マッチングの仕様
-`inStock(ingName)`: 部分一致(`includes`)を双方向で判定。
+`inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
 「鶏もも肉」の在庫は材料「鶏もも肉」にも「鶏もも」にもヒットする。
-誤ヒット例が増えたら正規化辞書の導入を検討(TODO参照)。
+「たまねぎ」の在庫は組み込み辞書により「玉ねぎ」にも正規化されてヒットする(v1.5)。

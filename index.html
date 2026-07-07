@@ -128,6 +128,12 @@ header .loop{width:36px;height:36px;border-radius:13px;background:var(--logo-bg)
 header .loop svg{width:22px;height:22px;display:block}
 header h1{font-size:18px;font-weight:900;letter-spacing:.05em;flex:1}
 #expireBadge{background:var(--badge-bg,var(--red));color:var(--badge-ink,#fff);border-radius:999px;font-size:12px;font-weight:700;padding:4px 11px;display:none;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.header-menu{position:relative;flex-shrink:0}
+.header-menu>.icon-btn{color:var(--head-ink);font-size:20px}
+.header-menu-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:var(--card);color:var(--ink);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.2);min-width:190px;padding:6px;display:none;z-index:50}
+.header-menu-dropdown.open{display:block}
+.header-menu-dropdown button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:10px;padding:11px 12px;font-size:13.5px;font-weight:700;color:var(--ink)}
+.header-menu-dropdown button:active{background:var(--ghost-bg)}
 main{max-width:760px;margin:0 auto;padding:16px 16px 0}
 .tab-page{display:none}
 .tab-page.active{display:block;animation:fade .22s ease}
@@ -228,6 +234,14 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <span class="loop"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="10" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-dasharray="47 16" transform="rotate(80 16 16)"/><circle cx="16" cy="16" r="4.2" fill="currentColor"/></svg></span>
   <h1>こんだてループ</h1>
   <span id="expireBadge"></span>
+  <div class="header-menu">
+    <button class="icon-btn" id="headerMenuBtn" onclick="toggleHeaderMenu(event)" aria-label="メニュー">☰</button>
+    <div class="header-menu-dropdown" id="headerMenuDropdown">
+      <button onclick="openTutorial();closeHeaderMenu()">📖 使い方</button>
+      <button onclick="openDictModal();closeHeaderMenu()">📝 食材名の辞書</button>
+      <button onclick="switchTab('settings');closeHeaderMenu()">⚙️ 設定タブへ</button>
+    </div>
+  </div>
 </header>
 <main>
 
@@ -235,9 +249,6 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 <section id="page-stock" class="tab-page active">
   <h2>⏰ 期限が近い食材 <span class="count" id="expSoonCount"></span></h2>
   <div id="expSoonList"></div>
-  <div class="btn-row">
-    <button class="btn sub small" onclick="speakExpiring()">🔊 期限が近い食材を読み上げ</button>
-  </div>
   <h2>🧊 在庫一覧 <span class="count" id="stockCount"></span></h2>
   <div class="btn-row" id="locFilter">
     <button class="btn small ghost on" data-loc="all" onclick="setLocFilter('all',this)">すべて</button>
@@ -252,7 +263,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 <section id="page-menu" class="tab-page">
   <h2>🍽 今日の献立提案</h2>
   <div class="card" id="suggestBox">
-    <div class="empty">「献立を提案」を押すと、在庫と期限からあたしが考えるの〜</div>
+    <div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div>
   </div>
   <div class="btn-row">
     <button class="btn wide" onclick="suggest()">🎲 献立を提案する</button>
@@ -267,7 +278,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <button class="btn small" onclick="makePlan()">📅 次の買い物日まで、まとめて提案</button>
     <button class="btn small sub" onclick="addPlanMissingToShopping()">🛒 まとめ買いリストへ</button>
   </div>
-  <div id="planBox"><div class="empty">買い物の日にまとめて提案→仕込みリスト化するの。パルシステム方式なの〜🍱</div></div>
+  <div id="planBox"><div class="empty">買い物の日にまとめて献立を提案し、仕込みリストを作成します(パルシステム方式)。🍱</div></div>
   <h2>📖 レシピ一覧 <span class="count" id="recipeCount"></span></h2>
   <div class="btn-row">
     <button class="btn small sub" onclick="openRecipeModal()">＋ レシピを追加</button>
@@ -302,7 +313,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <div class="btn-row" style="margin-top:10px">
     <button class="btn small sub" onclick="openStockModal()">✍️ レシートを見ながら手動で在庫追加</button>
   </div>
-  <p style="font-size:11.5px;color:var(--sub);margin:4px 2px">※ 各レシートの「🔍 読み取り」でGemini APIによる自動抽出ができるの(設定タブでAPIキー登録が必要)。読み取り後は必ず確認モーダルでチェックしてから在庫に追加するの〜</p>
+  <p style="font-size:11.5px;color:var(--sub);margin:4px 2px">※ 各レシートの「🔍 読み取り」でGemini APIによる自動抽出ができます(設定タブでAPIキー登録が必要)。読み取り後は確認モーダルでチェックしてから在庫に追加してください。</p>
   <div class="receipt-grid" id="receiptGrid"></div>
 </section>
 
@@ -328,7 +339,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <div class="card">
     <div class="row" style="margin-bottom:8px">
       <span id="syncStatus" class="chip loc">⚪ 未設定</span>
-      <span class="meta grow" id="syncStatusText">あいことばを設定すると家族の端末と同期するの</span>
+      <span class="meta grow" id="syncStatusText">あいことばを設定すると家族の端末と同期します</span>
     </div>
     <div class="field" style="margin-bottom:8px">
       <label>あいことば (家族全員で同じものを入力)</label>
@@ -338,7 +349,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       <button class="btn small ghost" onclick="genHouseholdId()">🎲 あいことばを生成</button>
       <button class="btn small" id="syncToggleBtn" onclick="toggleSync()">同期を開始</button>
     </div>
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 同期されるのは在庫・レシピ・買い物リスト・設定。レシート画像は端末内のみなの。あいことばを知っている人は読み書きできるから、推測されにくい文字列にするの</p>
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 同期されるのは在庫・レシピ・買い物リスト・設定です。レシート画像は端末内のみに保存されます。あいことばを知っている人は読み書きできるため、推測されにくい文字列を設定してください。</p>
   </div>
   <h2>🔍 レシートOCR(Gemini)</h2>
   <div class="card">
@@ -349,7 +360,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <div class="btn-row" style="margin:0">
       <button class="btn small" onclick="saveGeminiKey()">保存する</button>
     </div>
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ キーはこの端末にのみ保存されるの(家族同期・エクスポートには含まれないの)。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">キーを取得する ↗</a></p>
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ キーはこの端末にのみ保存されます(家族同期・エクスポートには含まれません)。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">キーを取得する ↗</a></p>
   </div>
   <h2>💾 データ</h2>
   <div class="card">
@@ -359,7 +370,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       <input type="file" id="importInput" accept=".json" style="display:none">
       <button class="btn small danger" onclick="resetData()">🗑 全データ削除</button>
     </div>
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">データはこの端末のブラウザ(localStorage)にだけ保存されるの。機種変更前はエクスポートしてなの〜</p>
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">データはこの端末のブラウザ(localStorage)にのみ保存されます。機種変更前にはエクスポートしてください。</p>
   </div>
 </section>
 </main>
@@ -451,6 +462,38 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
 </div>
 
+<!-- 使い方チュートリアルモーダル -->
+<div class="modal-bg" id="tutorialModal">
+  <div class="modal">
+    <h3>📖 こんだてループの使い方</h3>
+    <div style="font-size:14px;line-height:1.85">
+      <p style="margin-bottom:12px"><b>🔁 基本の流れ</b><br>①在庫を登録 → ②献立を提案 → ③足りない食材を買い物リストへ → ④買い物後にレシートを撮影 → ⑤在庫に反映、というループを繰り返します。</p>
+      <p style="margin-bottom:12px"><b>🧊 在庫タブ</b><br>食材の在庫と期限を管理します。期限が近い食材は上部に表示されます。</p>
+      <p style="margin-bottom:12px"><b>🍽 献立タブ</b><br>在庫と期限をもとに主菜・副菜・汁物を提案します。買い物日までのまとめ献立と仕込みリストも作成できます。</p>
+      <p style="margin-bottom:12px"><b>🛒 買い物タブ</b><br>足りない食材のリストを管理し、購入後は在庫に反映できます。よく行くスーパーのチラシや特売メモも登録できます。</p>
+      <p style="margin-bottom:12px"><b>🧾 レシートタブ</b><br>レシートを撮影・保存できます。設定タブでGemini APIキーを登録すると「🔍 読み取り」で品目を自動抽出し、確認モーダルでチェックしてから在庫に追加できます。</p>
+      <p style="margin-bottom:12px"><b>⚙️ 設定タブ</b><br>テーマ、買い物曜日、家族同期、レシートOCRのAPIキー、データのエクスポート・インポートを行います。</p>
+      <p style="margin-bottom:0"><b>👨‍👩‍👧‍👦 家族同期</b><br>「あいことば」を家族で共有すると、在庫・レシピ・買い物リスト・設定が家族の端末と同期します(レシート画像とAPIキーは端末内のみに保存されます)。</p>
+    </div>
+    <div class="btn-row"><button class="btn wide" onclick="closeTutorial()">はじめる</button></div>
+  </div>
+</div>
+
+<!-- 食材名の辞書モーダル -->
+<div class="modal-bg" id="dictModal">
+  <div class="modal">
+    <h3>📝 食材名の辞書</h3>
+    <p class="meta" id="dictBuiltinInfo" style="margin-bottom:10px"></p>
+    <div id="dictUserList"></div>
+    <div class="field field-grid2">
+      <div><label style="font-size:12px;font-weight:700;color:var(--sub)">別名</label><input id="dict-alias" placeholder="例: 玉葱"></div>
+      <div><label style="font-size:12px;font-weight:700;color:var(--sub)">正規名</label><input id="dict-canon" placeholder="例: 玉ねぎ"></div>
+    </div>
+    <div class="btn-row"><button class="btn wide" onclick="addDictEntry()">追加する</button></div>
+    <button class="btn ghost wide" onclick="closeModal('dictModal')">閉じる</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 /* ============ state ============ */
@@ -481,7 +524,7 @@ const SEED_RECIPES=[
 
 function defaultState(){return{
   inventory:[],recipes:SEED_RECIPES,shopping:[],receipts:[],
-  settings:{shoppingDays:[],shoppingLog:[],stores:[]},
+  settings:{shoppingDays:[],shoppingLog:[],stores:[],normDict:{}},
   current:null, plan:null, ui:{locFilter:'all',favOnly:false}
 };}
 let state=load();
@@ -492,12 +535,13 @@ function load(){
     migrate(st);return st;
   }catch(e){console.error(e);return defaultState();}
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){toast('保存に失敗… 画像が多すぎるかも。古いレシートを削除してなの');}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){toast('保存に失敗しました。画像が多すぎる可能性があります。古いレシートを削除してください。');}
   if(typeof schedulePush==='function')schedulePush();}
 function migrate(st){
   (st.recipes||[]).forEach(r=>{
     if(r.freqDays==null)r.freqDays=r.freq==='よく'?7:r.freq==='あまり'?90:14;  // v1.2以前のfreqから変換
   });
+  if(!st.settings.normDict||typeof st.settings.normDict!=='object')st.settings.normDict={};  // v1.5: 食材名の正規化辞書
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -527,7 +571,85 @@ function switchTab(tab){
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
-document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{
+  if(e.target!==m)return;
+  m.classList.remove('open');
+  if(m.id==='tutorialModal')markTutorialSeen();
+}));
+
+/* ============ ヘッダーメニュー ============ */
+function toggleHeaderMenu(e){
+  e.stopPropagation();
+  document.getElementById('headerMenuDropdown').classList.toggle('open');
+}
+function closeHeaderMenu(){document.getElementById('headerMenuDropdown').classList.remove('open');}
+document.addEventListener('click',e=>{
+  const dd=document.getElementById('headerMenuDropdown');
+  if(dd&&dd.classList.contains('open')&&!e.target.closest('.header-menu'))closeHeaderMenu();
+});
+
+/* ============ 使い方チュートリアル ============ */
+const TUTORIAL_SEEN_KEY='kondate-loop-tutorial-seen';   // 端末ローカル専用。同期対象外
+function markTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1');}catch(e){}}
+function openTutorial(){openModal('tutorialModal');}
+function closeTutorial(){closeModal('tutorialModal');markTutorialSeen();}
+function maybeShowTutorial(){
+  let seen=false;
+  try{seen=!!localStorage.getItem(TUTORIAL_SEEN_KEY);}catch(e){}
+  if(!seen)openTutorial();
+}
+
+/* ============ 食材名の正規化辞書 ============ */
+// 確実に同一食材と言えるゆらぎのみ収録(別食材を混ぜない)
+const BUILTIN_NORM_DICT={
+  'たまねぎ':'玉ねぎ','タマネギ':'玉ねぎ','玉葱':'玉ねぎ',
+  'ジャガイモ':'じゃがいも','馬鈴薯':'じゃがいも','じゃが芋':'じゃがいも',
+  '人参':'にんじん','ニンジン':'にんじん',
+  'ねぎ':'長ねぎ','長ネギ':'長ねぎ',
+  '鶏もも':'鶏もも肉','鶏モモ肉':'鶏もも肉','鶏モモ':'鶏もも肉',
+  '豚こま':'豚こま切れ肉','豚コマ':'豚こま切れ肉',
+  'たまご':'卵','玉子':'卵',
+  'キュウリ':'きゅうり',
+  '生姜':'しょうが','ショウガ':'しょうが',
+  'ダイコン':'大根',
+};
+function normalizeName(s){
+  s=String(s??'').trim();
+  if(BUILTIN_NORM_DICT[s])s=BUILTIN_NORM_DICT[s];
+  const userDict=(state.settings&&state.settings.normDict)||{};
+  if(userDict[s])s=userDict[s];
+  return s;
+}
+function openDictModal(){
+  document.getElementById('dictBuiltinInfo').textContent=`標準で${Object.keys(BUILTIN_NORM_DICT).length}組登録済み`;
+  document.getElementById('dict-alias').value='';document.getElementById('dict-canon').value='';
+  renderDictList();
+  openModal('dictModal');
+}
+function renderDictList(){
+  const entries=Object.entries(state.settings.normDict||{});
+  document.getElementById('dictUserList').innerHTML=entries.length?entries.map(([alias,canon],i)=>`
+    <div class="card row">
+      <div class="grow"><span class="name">${esc(alias)} → ${esc(canon)}</span></div>
+      <button class="icon-btn" onclick="delDictEntry(${i})" aria-label="削除">🗑</button>
+    </div>`).join(''):'<div class="empty">登録した別名はまだありません。</div>';
+}
+function addDictEntry(){
+  const alias=document.getElementById('dict-alias').value.trim();
+  const canon=document.getElementById('dict-canon').value.trim();
+  if(!alias||!canon){toast('別名と正規名の両方を入力してください。');return;}
+  if(alias===canon){toast('別名と正規名が同じです。');return;}
+  state.settings.normDict[alias]=canon;
+  save();renderDictList();
+  document.getElementById('dict-alias').value='';document.getElementById('dict-canon').value='';
+  toast(`「${alias}」→「${canon}」を登録しました。`);
+}
+function delDictEntry(i){
+  const entries=Object.entries(state.settings.normDict||{});
+  if(!entries[i])return;
+  delete state.settings.normDict[entries[i][0]];
+  save();renderDictList();
+}
 
 /* ============ 在庫 ============ */
 function setLocFilter(loc,btn){
@@ -555,11 +677,11 @@ function stockItemHTML(it){
 function renderStock(){
   const inv=sortedInventory();
   const soon=inv.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;});
-  document.getElementById('expSoonList').innerHTML=soon.length?soon.map(stockItemHTML).join(''):'<div class="empty">期限3日以内の食材はないの。えらいの〜🐶</div>';
+  document.getElementById('expSoonList').innerHTML=soon.length?soon.map(stockItemHTML).join(''):'<div class="empty">期限3日以内の食材はありません。</div>';
   document.getElementById('expSoonCount').textContent=soon.length?`${soon.length}件`:'';
   const filter=state.ui.locFilter;
   const list=inv.filter(i=>filter==='all'||i.location===filter);
-  document.getElementById('stockList').innerHTML=list.length?list.map(stockItemHTML).join(''):'<div class="empty">在庫が空っぽなの。右下の＋から食材を追加してなの〜🍖</div>';
+  document.getElementById('stockList').innerHTML=list.length?list.map(stockItemHTML).join(''):'<div class="empty">在庫が登録されていません。右下の＋から食材を追加してください。</div>';
   document.getElementById('stockCount').textContent=`${state.inventory.length}件`;
   const badge=document.getElementById('expireBadge');
   const urgent=inv.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=1;}).length;
@@ -586,7 +708,7 @@ function editStock(id){
 }
 function saveStock(){
   const name=document.getElementById('f-name').value.trim();
-  if(!name){toast('食材名は必須なの〜');return;}
+  if(!name){toast('食材名を入力してください。');return;}
   const id=document.getElementById('f-id').value;
   const data={name,qty:parseFloat(document.getElementById('f-qty').value)||1,
     unit:document.getElementById('f-unit').value.trim()||'個',
@@ -595,7 +717,7 @@ function saveStock(){
     memo:document.getElementById('f-memo').value.trim()};
   if(id){Object.assign(state.inventory.find(x=>x.id===id),data);}
   else{state.inventory.push({id:uid(),addedAt:new Date().toISOString().slice(0,10),...data});}
-  save();renderStock();closeModal('stockModal');toast(`「${name}」を保存したの🧊`);
+  save();renderStock();closeModal('stockModal');toast(`「${name}」を保存しました。🧊`);
 }
 function delStock(id){
   const it=state.inventory.find(x=>x.id===id);
@@ -614,19 +736,19 @@ function compressImage(file){
       c.getContext('2d').drawImage(img,0,0,w,h);
       URL.revokeObjectURL(url);res(c.toDataURL('image/jpeg',0.72));
     };
-    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('この形式は読み込めなかったの(HEICはiPhoneのSafariなら大体OK)'));};
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('この形式は読み込めませんでした(HEICはiPhoneのSafariなら読み込める場合があります)'));};
     img.src=url;
   });
 }
 async function handleFiles(files){
   for(const f of files){
-    if(!f.type.startsWith('image/')&&!/\.heic$/i.test(f.name)){toast('画像ファイルだけ受け付けるの〜');continue;}
+    if(!f.type.startsWith('image/')&&!/\.heic$/i.test(f.name)){toast('画像ファイルのみ受け付けています。');continue;}
     try{
       const dataUrl=await compressImage(f);
       state.receipts.unshift({id:uid(),dataUrl,addedAt:new Date().toISOString().slice(0,10)});
     }catch(e){toast(e.message);}
   }
-  save();renderReceipts();toast('レシートを保存したの🧾 見ながら在庫追加してなの〜');
+  save();renderReceipts();toast('レシートを保存しました。🧾 見ながら在庫に追加してください。');
 }
 document.getElementById('fileInput').addEventListener('change',e=>{handleFiles([...e.target.files]);e.target.value='';});
 const dz=document.getElementById('dropZone');
@@ -639,7 +761,7 @@ function renderReceipts(){
      <button class="del" onclick="delReceipt('${r.id}')">✕</button>
      <figcaption>${r.addedAt}</figcaption>
      <button class="ocr-btn" id="ocr-btn-${r.id}" onclick="runOcr('${r.id}')">🔍 読み取り</button>
-     </figure>`).join('')||'<div class="empty" style="grid-column:1/-1">まだレシートがないの。買い物したら撮ってなの〜📷</div>';
+     </figure>`).join('')||'<div class="empty" style="grid-column:1/-1">まだレシートがありません。買い物したら撮影してください。📷</div>';
 }
 function delReceipt(id){state.receipts=state.receipts.filter(r=>r.id!==id);save();renderReceipts();}
 function viewReceipt(id){
@@ -658,8 +780,8 @@ function saveGeminiKey(){
   const k=document.getElementById('gemini-key').value.trim();
   try{
     if(k)localStorage.setItem(GEMINI_KEY_STORAGE,k);else localStorage.removeItem(GEMINI_KEY_STORAGE);
-  }catch(e){toast('キーの保存に失敗したの…');return;}
-  toast(k?'APIキーを保存したの🔑':'APIキーを削除したの');
+  }catch(e){toast('キーの保存に失敗しました。');return;}
+  toast(k?'APIキーを保存しました。🔑':'APIキーを削除しました。');
 }
 function ocrPrompt(){
   const today=new Date().toISOString().slice(0,10);
@@ -667,7 +789,7 @@ function ocrPrompt(){
 }
 async function runOcr(id){
   const key=loadGeminiKey();
-  if(!key){toast('先に設定タブでGemini APIキーを登録してなの🔑');switchTab('settings');return;}
+  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
   const r=state.receipts.find(x=>x.id===id);if(!r)return;
   const btn=document.getElementById('ocr-btn-'+id);
   if(btn){btn.disabled=true;btn.textContent='⏳読み取り中…';}
@@ -681,9 +803,9 @@ async function runOcr(id){
       })
     });
     if(!res.ok){
-      if(res.status===429)throw new Error('無料枠の上限。1分待ってなの');
-      if(res.status===401||res.status===403)throw new Error('APIキーを確認してなの');
-      throw new Error(`通信エラーなの(HTTP ${res.status})`);
+      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
+      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
+      throw new Error(`通信エラーです(HTTP ${res.status})`);
     }
     const data=await res.json();
     let items=[];
@@ -694,7 +816,7 @@ async function runOcr(id){
     openOcrModal(items);
   }catch(e){
     console.error(e);
-    toast(e.message||'読み取りに失敗したの…');
+    toast(e.message||'読み取りに失敗しました。');
   }finally{
     if(btn){btn.disabled=false;btn.textContent='🔍 読み取り';}
   }
@@ -703,7 +825,7 @@ let ocrItems=[];
 function openOcrModal(items){
   ocrItems=(items||[]).filter(it=>it&&it.name).map((it,i)=>({
     idx:i,checked:true,
-    name:String(it.name),
+    name:normalizeName(String(it.name)),
     qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
     unit:it.unit?String(it.unit):'個',
     price:(typeof it.price==='number')?it.price:null,
@@ -716,7 +838,7 @@ function openOcrModal(items){
 function renderOcrModal(){
   const box=document.getElementById('ocrItemsBox');
   if(!ocrItems.length){
-    box.innerHTML='<div class="empty">読み取れなかったの…手動で追加してなの</div>';
+    box.innerHTML='<div class="empty">読み取れませんでした。手動で追加してください。</div>';
     document.getElementById('ocrAddBtn').style.display='none';
     return;
   }
@@ -750,20 +872,21 @@ function updateOcrAddBtn(){
 }
 function addOcrItemsToStock(){
   const checked=ocrItems.filter(it=>it.checked&&it.name.trim());
-  if(!checked.length){toast('1品以上チェックしてなの〜');return;}
+  if(!checked.length){toast('1品以上チェックしてください。');return;}
   const today=new Date().toISOString().slice(0,10);
   checked.forEach(it=>state.inventory.push({
     id:uid(),name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',
     location:it.location,expiry:it.expiry||null,addedAt:today,memo:''
   }));
   save();renderStock();closeModal('ocrModal');
-  toast(`${checked.length}品を在庫に追加したの🧾`);
+  toast(`${checked.length}品を在庫に追加しました。🧾`);
 }
 
 /* ============ 献立提案 ============ */
 function stockNames(){return state.inventory.map(i=>i.name);}
 function inStock(ingName){
-  return state.inventory.some(i=>i.name.includes(ingName)||ingName.includes(i.name));
+  const n=normalizeName(ingName);
+  return state.inventory.some(i=>{const a=normalizeName(i.name);return a.includes(n)||n.includes(a);});
 }
 function expiringNames(){
   return state.inventory.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;}).map(i=>i.name);
@@ -802,9 +925,9 @@ function searchLinks(r){
   return`<span class="links"><a href="${kurashiru}" target="_blank" rel="noopener">🔍 クラシル</a><a href="${delish}" target="_blank" rel="noopener">🔍 DELISH KITCHEN</a></span>`;
 }
 function suggest(){
-  if(!state.inventory.length){toast('先に在庫を登録すると精度が上がるの〜🧊');}
+  if(!state.inventory.length){toast('先に在庫を登録すると精度が上がります。🧊');}
   const combo=['主菜','副菜','汁物'].map(pickBest).filter(Boolean);
-  if(!combo.length){document.getElementById('suggestBox').innerHTML='<div class="empty">レシピがないの。「＋ レシピを追加」からなの〜</div>';return;}
+  if(!combo.length){document.getElementById('suggestBox').innerHTML='<div class="empty">レシピが登録されていません。「＋ レシピを追加」から登録してください。</div>';return;}
   state.current=combo.map(r=>r.id);save();
   renderSuggestion();
 }
@@ -822,7 +945,7 @@ function renderSuggestion(){
         const has=inStock(g.name);
         return`<span class="chip ${has?'ok':'danger'}">${has?'✓':'✕'} ${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}</span>`;}).join('')}
       </div>
-      ${miss.length?`<div class="meta" style="margin-top:4px">足りない: ${miss.map(m=>esc(m.name)).join('、')}</div>`:'<div class="meta" style="margin-top:4px;color:var(--green)">全部在庫でまかなえるの🎉</div>'}
+      ${miss.length?`<div class="meta" style="margin-top:4px">足りない: ${miss.map(m=>esc(m.name)).join('、')}</div>`:'<div class="meta" style="margin-top:4px;color:var(--green)">全部在庫でまかなえます。🎉</div>'}
       <div style="margin-top:6px" class="btn-row" style="margin:6px 0 0">
         <button class="btn small ghost" onclick="feedbackDish('${r.id}',true)">👍 また食べたい</button>
         <button class="btn small ghost" onclick="feedbackDish('${r.id}',false)">👎 イマイチ</button>
@@ -831,7 +954,7 @@ function renderSuggestion(){
 }
 function addMissingToShopping(){
   const combo=currentRecipes();
-  if(!combo.length){toast('先に献立を提案してなの〜');return;}
+  if(!combo.length){toast('先に献立を提案してください。');return;}
   let added=0;
   combo.forEach(r=>missingIngs(r).forEach(m=>{
     if(state.shopping.some(s=>!s.checked&&s.name===m.name))return;
@@ -839,15 +962,15 @@ function addMissingToShopping(){
     added++;
   }));
   save();renderShopping();
-  toast(added?`${added}品を買い物リストに入れたの🛒`:'足りないものはもうリストにあるの〜');
+  toast(added?`${added}品を買い物リストに追加しました。🛒`:'足りないものはすでにリストにあります。');
   if(added)switchTab('shop');
 }
 function markCooked(){
   const combo=currentRecipes();
-  if(!combo.length){toast('献立が選ばれてないの〜');return;}
+  if(!combo.length){toast('献立が選択されていません。');return;}
   const today=new Date().toISOString().slice(0,10);
   combo.forEach(r=>r.lastCooked=today);
-  save();renderRecipes();toast('えらいの〜!ごちそうさまなの🍚 最終調理日を記録したの');
+  save();renderRecipes();toast('お疲れさまでした。🍚 最終調理日を記録しました。');
 }
 
 /* ============ レシピ一覧 ============ */
@@ -876,11 +999,11 @@ function renderRecipes(){
       </div>
       <div class="meta" style="margin-top:6px">食べたい間隔: ${(r.freqDays||14)}日に1回</div>
       <div class="freq-seg">${FREQ_PRESETS.map(([label,days])=>`<button class="${(r.freqDays||14)===days?'on':''}" onclick="setFreqDays('${r.id}',${days})">${label}</button>`).join('')}</div>
-    </div>`).join('')||'<div class="empty">お気に入りのレシピがまだないの〜⭐</div>';
+    </div>`).join('')||'<div class="empty">お気に入りのレシピがまだありません。⭐</div>';
 }
 function toggleFav(id){const r=state.recipes.find(x=>x.id===id);r.favorite=!r.favorite;save();renderRecipes();}
 function setRating(id,n){const r=state.recipes.find(x=>x.id===id);r.rating=(r.rating===n)?0:n;save();renderRecipes();}
-function setFreqDays(id,days){const r=state.recipes.find(x=>x.id===id);r.freqDays=days;save();renderRecipes();toast(`「${r.name}」は${days}日に1回ペースにするの⏱`);}
+function setFreqDays(id,days){const r=state.recipes.find(x=>x.id===id);r.freqDays=days;save();renderRecipes();toast(`「${r.name}」を${days}日に1回のペースに設定しました。⏱`);}
 function openRecipeModal(){
   ['r-id','r-name','r-ings','r-steps','r-memo'].forEach(i=>document.getElementById(i).value='');
   document.getElementById('r-time').value=20;document.getElementById('r-cat').value='主菜';
@@ -899,11 +1022,11 @@ function editRecipe(id){
 }
 function saveRecipe(){
   const name=document.getElementById('r-name').value.trim();
-  if(!name){toast('料理名は必須なの〜');return;}
+  if(!name){toast('料理名を入力してください。');return;}
   const ings=document.getElementById('r-ings').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
     const p=l.split(/\s+/);return{name:p[0],qty:p[1]?parseFloat(p[1])||null:null,unit:p[2]||''};
   });
-  if(!ings.length){toast('材料を1つ以上入れてなの〜');return;}
+  if(!ings.length){toast('材料を1つ以上入力してください。');return;}
   const id=document.getElementById('r-id').value;
   const steps=document.getElementById('r-steps').value.split('\n').map(l=>l.trim()).filter(Boolean);
   const data={name,cat:document.getElementById('r-cat').value,
@@ -911,7 +1034,7 @@ function saveRecipe(){
     memo:document.getElementById('r-memo').value.trim()};
   if(id){Object.assign(state.recipes.find(x=>x.id===id),data);}
   else{state.recipes.push({id:uid(),favorite:false,freqDays:14,rating:0,lastCooked:null,seed:false,...data});}
-  save();renderRecipes();closeModal('recipeModal');toast(`「${name}」を保存したの📖`);
+  save();renderRecipes();closeModal('recipeModal');toast(`「${name}」を保存しました。📖`);
 }
 function delRecipe(id){
   const r=state.recipes.find(x=>x.id===id);
@@ -931,24 +1054,24 @@ function renderShopping(){
         <div class="meta">${i.menu?'🍽 '+esc(i.menu):''} ${i.memo?'📝'+esc(i.memo):''}</div>
       </div>
       <button class="icon-btn" onclick="delShop('${i.id}')">🗑</button>
-    </div>`).join(''):'<div class="empty">リストは空なの。献立タブから「足りない食材を買い物リストへ」なの〜</div>';
+    </div>`).join(''):'<div class="empty">リストは空です。献立タブの「足りない食材を買い物リストへ」から追加できます。</div>';
 }
 function toggleShop(id){const i=state.shopping.find(x=>x.id===id);i.checked=!i.checked;save();renderShopping();}
 function delShop(id){state.shopping=state.shopping.filter(x=>x.id!==id);save();renderShopping();}
 function clearChecked(){
   const n=state.shopping.filter(i=>i.checked).length;
-  if(!n){toast('購入済みがないの〜');return;}
+  if(!n){toast('購入済みの品がありません。');return;}
   if(!confirm(`購入済み ${n}件 を削除する?`))return;
   state.shopping=state.shopping.filter(i=>!i.checked);save();renderShopping();
 }
 function checkedToStock(){
   const done=state.shopping.filter(i=>i.checked);
-  if(!done.length){toast('チェック済みの品がないの〜');return;}
+  if(!done.length){toast('チェック済みの品がありません。');return;}
   const today=new Date().toISOString().slice(0,10);
   done.forEach(i=>state.inventory.push({id:uid(),name:i.name,qty:i.qty||1,unit:i.unit||'個',location:'冷蔵',expiry:null,addedAt:today,memo:'買い物リストから追加'}));
   state.shopping=state.shopping.filter(i=>!i.checked);
   save();renderShopping();renderStock();
-  toast(`${done.length}品を在庫に入れたの📥 期限は在庫タブで設定してなの〜`);
+  toast(`${done.length}品を在庫に追加しました。📥 期限は在庫タブで設定してください。`);
 }
 function openShopAdd(){
   ['s-name','s-memo'].forEach(i=>document.getElementById(i).value='');
@@ -957,11 +1080,11 @@ function openShopAdd(){
 }
 function saveShopItem(){
   const name=document.getElementById('s-name').value.trim();
-  if(!name){toast('品名は必須なの〜');return;}
+  if(!name){toast('品名を入力してください。');return;}
   state.shopping.push({id:uid(),name,qty:parseFloat(document.getElementById('s-qty').value)||1,
     unit:document.getElementById('s-unit').value.trim(),menu:'',checked:false,
     memo:document.getElementById('s-memo').value.trim()});
-  save();renderShopping();closeModal('shopModal');toast('リストに追加したの🛒');
+  save();renderShopping();closeModal('shopModal');toast('リストに追加しました。🛒');
 }
 
 /* ============ 店舗・特売 ============ */
@@ -973,14 +1096,14 @@ function renderStores(){
         <div class="meta">${s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener" style="color:var(--green)">チラシを見る ↗</a>`:''} ${s.memo?'📝'+esc(s.memo):''}</div>
       </div>
       <button class="icon-btn" onclick="delStore(${i})">🗑</button>
-    </div>`).join('')||'<div class="empty">よく行くスーパーを登録すると、チラシと特売メモをここで見られるの〜🏪</div>';
+    </div>`).join('')||'<div class="empty">よく行くスーパーを登録すると、チラシと特売メモをここで確認できます。🏪</div>';
 }
 function openStoreModal(){['st-name','st-url','st-memo'].forEach(i=>document.getElementById(i).value='');openModal('storeModal');}
 function saveStore(){
   const name=document.getElementById('st-name').value.trim();
-  if(!name){toast('店名は必須なの〜');return;}
+  if(!name){toast('店名を入力してください。');return;}
   state.settings.stores.push({name,url:document.getElementById('st-url').value.trim(),memo:document.getElementById('st-memo').value.trim()});
-  save();renderStores();closeModal('storeModal');toast('店舗を登録したの🏪');
+  save();renderStores();closeModal('storeModal');toast('店舗を登録しました。🏪');
 }
 function delStore(i){state.settings.stores.splice(i,1);save();renderStores();}
 
@@ -997,14 +1120,14 @@ function toggleDay(i){
 }
 function logShopping(){
   state.settings.shoppingLog.push(new Date().toISOString().slice(0,10));
-  save();renderShopLog();toast('買い物おつかれなの〜🛍 レシートも撮ってなの');
+  save();renderShopLog();toast('買い物を記録しました。🛍 レシートも撮影してください。');
 }
 function renderShopLog(){
   const log=state.settings.shoppingLog;
   const month=new Date().toISOString().slice(0,7);
   const thisMonth=log.filter(d=>d.startsWith(month)).length;
   document.getElementById('shopLogSummary').textContent=`今月 ${thisMonth}回 / 累計 ${log.length}回`;
-  document.getElementById('shopLogRecent').textContent=log.length?`最終: ${log[log.length-1]}`:'まだ記録がないの';
+  document.getElementById('shopLogRecent').textContent=log.length?`最終: ${log[log.length-1]}`:'まだ記録がありません';
 }
 function exportData(){
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
@@ -1015,18 +1138,18 @@ function exportData(){
 document.getElementById('importInput').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
-  r.onload=()=>{try{state={...defaultState(),...JSON.parse(r.result)};save();renderAll();toast('インポート完了なの📥');}catch{toast('読み込めなかったの…JSONを確認してなの');}};
+  r.onload=()=>{try{state={...defaultState(),...JSON.parse(r.result)};save();renderAll();toast('インポートが完了しました。📥');}catch{toast('読み込めませんでした。JSONの内容を確認してください。');}};
   r.readAsText(f);e.target.value='';
 });
 function resetData(){
-  if(!confirm('全データを削除する?この操作は戻せないの'))return;
-  if(!confirm('本当に?エクスポートは済んでる?'))return;
-  localStorage.removeItem(KEY);state=defaultState();save();renderAll();toast('まっさらにしたの〜');
+  if(!confirm('全データを削除しますか?この操作は元に戻せません。'))return;
+  if(!confirm('本当によろしいですか?エクスポートは済んでいますか?'))return;
+  localStorage.removeItem(KEY);state=defaultState();save();renderAll();toast('データを初期化しました。');
 }
 
 /* ============ 読み上げ (Web Speech API) ============ */
 function speak(text){
-  if(!('speechSynthesis'in window)){toast('このブラウザは読み上げに対応してないの…');return;}
+  if(!('speechSynthesis'in window)){toast('このブラウザは読み上げに対応していません。');return;}
   speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(text);
   u.lang='ja-JP';u.rate=1.0;
@@ -1034,7 +1157,7 @@ function speak(text){
 }
 function speakMenu(){
   const combo=currentRecipes();
-  if(!combo.length){toast('先に献立を提案してなの〜');return;}
+  if(!combo.length){toast('先に献立を提案してください。');return;}
   const miss=combo.flatMap(missingIngs).map(m=>m.name);
   let t='今日の献立は、'+combo.map(r=>`${r.cat}が${r.name}`).join('、')+'です。';
   t+=miss.length?`足りない食材は、${miss.join('、')}です。`:'すべて在庫でまかなえます。';
@@ -1042,15 +1165,8 @@ function speakMenu(){
 }
 function speakShopping(){
   const items=state.shopping.filter(i=>!i.checked);
-  if(!items.length){toast('リストが空なの〜');return;}
+  if(!items.length){toast('リストが空です。');return;}
   speak('買い物リストです。'+items.map(i=>`${i.name}、${i.qty||''}${i.unit||''}`).join('。')+'。以上です。');
-}
-function speakExpiring(){
-  const soon=sortedInventory().filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;});
-  if(!soon.length){speak('期限が近い食材はありません。');return;}
-  speak('期限が近い食材です。'+soon.map(i=>{
-    const d=daysUntil(i.expiry);
-    return`${i.name}、${d<0?'期限切れ':d===0?'今日まで':`あと${d}日`}`;}).join('。'));
 }
 
 /* ============ レシピ詳細(作り方)ビュー ============ */
@@ -1065,7 +1181,7 @@ function viewRecipe(id){
       const has=inStock(g.name);
       return`<span class="chip ${has?'ok':'danger'}">${has?'✓':'✕'} ${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}</span>`;}).join('')}</div>
     <div class="meta" style="margin-bottom:6px">作り方</div>
-    ${(r.steps&&r.steps.length)?`<ol style="padding-left:22px;font-size:14px;line-height:1.9;margin-bottom:12px">${r.steps.map(st=>`<li>${esc(st)}</li>`).join('')}</ol>`:'<div class="empty" style="margin-bottom:12px">作り方が未登録なの。✏️から追加できるの〜</div>'}
+    ${(r.steps&&r.steps.length)?`<ol style="padding-left:22px;font-size:14px;line-height:1.9;margin-bottom:12px">${r.steps.map(st=>`<li>${esc(st)}</li>`).join('')}</ol>`:'<div class="empty" style="margin-bottom:12px">作り方が未登録です。✏️から追加できます。</div>'}
     <div style="margin-bottom:12px">もっと詳しく: ${searchLinks(r)}</div>
     <button class="btn ghost wide" onclick="this.closest('.modal-bg').remove()">閉じる</button>
   </div>`;
@@ -1080,7 +1196,7 @@ function feedbackDish(id,good){
   else{r.rating=Math.max(0,(r.rating||0)-1);idx=Math.min(days.length-1,idx+1);} // 1段長く=控えめに
   r.freqDays=days[idx];
   save();renderRecipes();
-  toast(good?`「${r.name}」👍 ${r.freqDays}日に1回ペースに上げたの`:`「${r.name}」👎 ${r.freqDays}日に1回に控えるの`);
+  toast(good?`「${r.name}」👍 ${r.freqDays}日に1回のペースに上げました。`:`「${r.name}」👎 ${r.freqDays}日に1回のペースに下げました。`);
 }
 
 /* ============ まとめ献立 + 仕込みリスト ============ */
@@ -1115,7 +1231,7 @@ function makePlan(){
   }
   state.plan={createdAt:new Date().toISOString().slice(0,10),days,prepDone:{}};
   save();renderPlan();
-  toast(`次の買い物日まで${n}日分の献立を組んだの📅 仕込みは30分で終わるの〜`);
+  toast(`次の買い物日まで${n}日分の献立を作成しました。📅 仕込みの目安は30分です。`);
 }
 function dayLabel(off){
   if(off===0)return '今日';if(off===1)return '明日';
@@ -1150,7 +1266,7 @@ function togglePrep(name){
 }
 function renderPlan(){
   const box=document.getElementById('planBox');if(!box)return;
-  if(!state.plan){box.innerHTML='<div class="empty">買い物の日にまとめて提案→仕込みリスト化するの。パルシステム方式なの〜🍱</div>';document.getElementById('planCount').textContent='';return;}
+  if(!state.plan){box.innerHTML='<div class="empty">買い物の日にまとめて献立を提案し、仕込みリストを作成します(パルシステム方式)。🍱</div>';document.getElementById('planCount').textContent='';return;}
   const tasks=buildPrepTasks();
   const doneN=tasks.filter(t=>state.plan.prepDone[t.name]).length;
   document.getElementById('planCount').textContent=`${state.plan.days.length}日分・${state.plan.createdAt}作成`;
@@ -1170,12 +1286,12 @@ function renderPlan(){
           <div class="meta">${esc(t.how)} → <b>${t.storage}</b></div>
           <div class="meta">使い道: ${t.uses.map(u=>`${esc(u.recipe)}(${dayLabel(u.offset)})`).join(' / ')}</div>
         </div>
-      </div>`).join(''):'<div class="empty">下処理が必要な食材はないの〜</div>'}
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ もやし・きゅうり・豆腐系は日持ちしないから当日調理推奨なの</p>
+      </div>`).join(''):'<div class="empty">下処理が必要な食材はありません。</div>'}
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ もやし・きゅうり・豆腐系は日持ちしないため、当日の調理を推奨します。</p>
   </div>`;
 }
 function addPlanMissingToShopping(){
-  if(!state.plan){toast('先に「まとめて提案」を押してなの〜');return;}
+  if(!state.plan){toast('先に「まとめて提案」を押してください。');return;}
   const seen={};let added=0;
   state.plan.days.forEach(day=>day.ids.forEach(id=>{
     const r=state.recipes.find(x=>x.id===id);if(!r)return;
@@ -1188,7 +1304,7 @@ function addPlanMissingToShopping(){
     });
   }));
   save();renderShopping();
-  toast(added?`まとめ買い${added}品をリストに入れたの🛒`:'足りないものはもうリストにあるの〜');
+  toast(added?`まとめ買い${added}品をリストに追加しました。🛒`:'足りないものはすでにリストにあります。');
   if(added)switchTab('shop');
 }
 
@@ -1214,32 +1330,32 @@ function setSyncStatus(icon,cls,text){
 }
 function genHouseholdId(){
   document.getElementById('sync-hid').value=crypto.randomUUID();
-  toast('生成したの。家族にはこの文字列を共有してなの🔑');
+  toast('生成しました。家族にはこの文字列を共有してください。🔑');
 }
 async function toggleSync(){
   if(syncCfg.enabled){
     syncCfg={enabled:false,householdId:'',lastSyncedAt:null};saveSyncCfg();
-    renderSyncUI();toast('同期を解除したの。この端末のデータは残ってるの');
+    renderSyncUI();toast('同期を解除しました。この端末のデータは残ります。');
     return;
   }
   const hid=document.getElementById('sync-hid').value.trim();
-  if(hid.length<8){toast('あいことばは8文字以上にしてなの〜');return;}
+  if(hid.length<8){toast('あいことばは8文字以上にしてください。');return;}
   setSyncStatus('🟡','warn','接続確認中…');
   try{
     const res=await fetch(`${SYNC_URL}/rest/v1/households?id=eq.${encodeURIComponent(hid)}&select=data,updated_at`,{headers:syncHeaders()});
     if(!res.ok)throw new Error('HTTP '+res.status);
     const rows=await res.json();
     if(rows.length){
-      if(state.inventory.length&&!confirm('この あいことば には既に家族のデータがあるの。\nこの端末の在庫・レシピ等は家族のデータで置き換わるけどいい?\n(レシート画像はこの端末に残るの)'))
+      if(state.inventory.length&&!confirm('このあいことばには既に家族のデータがあります。\nこの端末の在庫・レシピ等は家族のデータで置き換わりますが、よろしいですか?\n(レシート画像はこの端末に残ります)'))
         {setSyncStatus('⚪','loc','未設定');return;}
       applyRemote(rows[0]);
     }
     syncCfg={enabled:true,householdId:hid,lastSyncedAt:syncCfg.lastSyncedAt};saveSyncCfg();
     if(!rows.length)await pushNow();      // 初回はこの端末のデータを家の初期データにする
-    renderSyncUI();toast('家族同期をはじめたの👨‍👩‍👧‍👦✨');
+    renderSyncUI();toast('家族同期を開始しました。👨‍👩‍👧‍👦✨');
   }catch(e){
     console.error(e);setSyncStatus('🔴','danger','接続エラー: '+e.message);
-    toast('Supabaseにつながらなかったの…通信環境を確認してなの');
+    toast('Supabaseに接続できませんでした。通信環境を確認してください。');
   }
 }
 function applyRemote(row){
@@ -1263,7 +1379,7 @@ async function pull(){
       applyRemote(rows[0]);
     }
     setSyncStatus('🟢','ok','同期中 (最終: '+new Date().toLocaleTimeString('ja-JP')+')');
-  }catch(e){console.error(e);setSyncStatus('🔴','danger','同期エラー。通信復帰後に再試行するの');}
+  }catch(e){console.error(e);setSyncStatus('🔴','danger','同期エラーです。通信復帰後に再試行します。');}
 }
 async function pushNow(){
   if(!syncCfg.enabled||applyingRemote)return;
@@ -1279,7 +1395,7 @@ async function pushNow(){
     if(!res.ok)throw new Error('HTTP '+res.status);
     syncCfg.lastSyncedAt=now;saveSyncCfg();
     setSyncStatus('🟢','ok','同期中 (最終: '+new Date().toLocaleTimeString('ja-JP')+')');
-  }catch(e){console.error(e);setSyncStatus('🔴','danger','送信エラー。次の変更時に再試行するの');}
+  }catch(e){console.error(e);setSyncStatus('🔴','danger','送信エラーです。次回の変更時に再試行します。');}
   finally{syncBusy=false;}
 }
 async function pull0(){  // pushNow内部用: syncBusyガードを通らないpull
@@ -1307,7 +1423,7 @@ function renderSyncUI(){
   }else{
     btn.textContent='同期を開始';btn.classList.remove('danger');
     input.disabled=false;
-    setSyncStatus('⚪','loc','あいことばを設定すると家族の端末と同期するの');
+    setSyncStatus('⚪','loc','あいことばを設定すると家族の端末と同期します');
   }
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull();});
@@ -1324,6 +1440,7 @@ function renderAll(){
 }
 renderAll();
 renderSyncUI();
+maybeShowTutorial();
 if(syncCfg.enabled)pull();
 </script>
 </body>
