@@ -215,6 +215,15 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 .day-grid button:nth-child(5){grid-column:4;grid-row:1}
 .day-grid button:nth-child(6){grid-column:5;grid-row:1}
 .day-grid button:nth-child(7){grid-column:6;grid-row:1}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-grid .cal-dow{font-size:11px;font-weight:800;color:var(--sub);text-align:center;padding:2px 0}
+.cal-grid button.cal-day{position:relative;border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:8px 0 10px;font-weight:700;font-size:12.5px;color:var(--ink);min-height:36px}
+.cal-grid button.cal-day.empty{visibility:hidden;border:none}
+.cal-grid button.cal-day.has-history::after{content:'';position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--green)}
+.cal-grid button.cal-day.selected{background:var(--green-soft);border-color:var(--green)}
+.cal-grid button.cal-day.today{color:var(--green)}
+.meal-check{display:flex;align-items:center;gap:3px;font-size:12.5px;font-weight:700;color:var(--sub)}
+.meal-check input{width:18px;height:18px;accent-color:var(--green)}
 .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 26px);transform:translateX(-50%);background:var(--ink);color:#fff;font-size:13.5px;font-weight:700;padding:11px 20px;border-radius:999px;z-index:60;opacity:0;pointer-events:none;transition:opacity .2s;max-width:88vw;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1}
 .fab{position:fixed;right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 18px);z-index:25;width:58px;height:58px;border-radius:20px;background:var(--fab-bg,var(--green));color:var(--fab-ink,#fff);font-size:28px;border:none;box-shadow:var(--fab-shadow)}
@@ -274,11 +283,29 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <button class="btn ghost small" onclick="markCooked()">✅ この献立を作った</button>
   </div>
   <h2>🍱 まとめ献立と仕込み <span class="count" id="planCount"></span></h2>
+  <div class="btn-row" style="align-items:center">
+    <label style="font-size:12.5px;font-weight:700;color:var(--sub)">何日分
+      <input type="number" id="planDays" min="1" max="7" value="3" style="width:52px;margin-left:4px;padding:6px 4px;border:1.5px solid var(--line);border-radius:8px;text-align:center">
+    </label>
+    <label class="meal-check"><input type="checkbox" id="planMealAsa">朝</label>
+    <label class="meal-check"><input type="checkbox" id="planMealHiru">昼</label>
+    <label class="meal-check"><input type="checkbox" id="planMealYoru" checked>夜</label>
+  </div>
   <div class="btn-row">
-    <button class="btn small" onclick="makePlan()">📅 次の買い物日まで、まとめて提案</button>
+    <button class="btn small" onclick="makePlan()">📅 まとめて提案</button>
     <button class="btn small sub" onclick="addPlanMissingToShopping()">🛒 まとめ買いリストへ</button>
   </div>
-  <div id="planBox"><div class="empty">買い物の日にまとめて献立を提案し、仕込みリストを作成します(パルシステム方式)。🍱</div></div>
+  <div id="planBox"><div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div></div>
+  <h2>📅 献立カレンダー</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <button class="btn small ghost" onclick="calMonthShift(-1)">◀ 前月</button>
+      <div class="meta" style="font-weight:900;font-size:14px" id="calMonthLabel"></div>
+      <button class="btn small ghost" onclick="calMonthShift(1)">次月 ▶</button>
+    </div>
+    <div id="calGrid" class="cal-grid"></div>
+    <div id="calDetail" style="margin-top:10px"></div>
+  </div>
   <h2>📖 レシピ一覧 <span class="count" id="recipeCount"></span></h2>
   <div class="btn-row">
     <button class="btn small sub" onclick="openRecipeModal()">＋ レシピを追加</button>
@@ -525,7 +552,7 @@ const SEED_RECIPES=[
 function defaultState(){return{
   inventory:[],recipes:SEED_RECIPES,shopping:[],receipts:[],
   settings:{shoppingDays:[],shoppingLog:[],stores:[],normDict:{}},
-  current:null, plan:null, ui:{locFilter:'all',favOnly:false}
+  current:null, plan:null, history:[], ui:{locFilter:'all',favOnly:false}
 };}
 let state=load();
 function load(){
@@ -542,6 +569,12 @@ function migrate(st){
     if(r.freqDays==null)r.freqDays=r.freq==='よく'?7:r.freq==='あまり'?90:14;  // v1.2以前のfreqから変換
   });
   if(!st.settings.normDict||typeof st.settings.normDict!=='object')st.settings.normDict={};  // v1.5: 食材名の正規化辞書
+  if(st.plan&&Array.isArray(st.plan.days)){                     // v1.6: days[].ids → days[].meals.夜
+    st.plan.days.forEach(day=>{
+      if(!day.meals){day.meals={'夜':day.ids||[]};delete day.ids;}
+    });
+  }
+  if(!Array.isArray(st.history))st.history=[];                  // v1.6: 献立履歴カレンダー
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -888,10 +921,29 @@ function inStock(ingName){
   const n=normalizeName(ingName);
   return state.inventory.some(i=>{const a=normalizeName(i.name);return a.includes(n)||n.includes(a);});
 }
+// 提案画面での手動補正(◯⇄✗)。提案セッション中のみ有効な一時的な上書きで、保存はしない
+let stockOverride=new Map();
+function effectiveHas(ingName){
+  const n=normalizeName(ingName);
+  if(stockOverride.has(n))return stockOverride.get(n);
+  return inStock(ingName);
+}
+function toggleStockChip(ingName){
+  const n=normalizeName(ingName);
+  stockOverride.set(n,!effectiveHas(ingName));
+  if(state.current)renderSuggestion();
+  if(state.plan)renderPlan();
+}
+function ingChips(r){
+  return r.ings.map(g=>{
+    const has=effectiveHas(g.name);
+    return`<span class="chip ${has?'ok':'danger'}" style="cursor:pointer" onclick="toggleStockChip('${esc(g.name)}')" title="タップで在庫あり/なしを切り替え">${has?'【◯':'【✗'}${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}】</span>`;
+  }).join('');
+}
 function expiringNames(){
   return state.inventory.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;}).map(i=>i.name);
 }
-function scoreRecipe(r){
+function scoreRecipe(r,light){
   const exp=expiringNames();
   let hit=0,expHit=0;
   r.ings.forEach(g=>{
@@ -900,6 +952,7 @@ function scoreRecipe(r){
   });
   const coverage=r.ings.length?hit/r.ings.length:0;
   let s=coverage*10+expHit*6;
+  if(light)s+=Math.max(0,20-(r.time||0))*0.4;    // 朝・昼は時短レシピを優先
   if(r.favorite)s+=2;
   const fd=r.freqDays||14;                       // 食べたい間隔(日)
   if(r.lastCooked){
@@ -917,7 +970,7 @@ function pickBest(cat){
   if(!pool.length)return null;
   return pool.map(r=>({r,s:scoreRecipe(r)})).sort((a,b)=>b.s-a.s)[0].r;
 }
-function missingIngs(r){return r.ings.filter(g=>!inStock(g.name));}
+function missingIngs(r){return r.ings.filter(g=>!effectiveHas(g.name));}
 function searchLinks(r){
   const ings=r.ings.slice(0,2).map(g=>g.name).join(' ');
   const kurashiru='https://www.google.com/search?q='+encodeURIComponent(`${r.name} ${ings} レシピ クラシル`);
@@ -941,10 +994,7 @@ function renderSuggestion(){
     return`<div class="menu-slot">
       <div class="role">${r.cat} ・ 約${r.time}分</div>
       <div class="dish" style="cursor:pointer;border-bottom:1.5px dotted var(--green);display:inline-block" onclick="viewRecipe('${r.id}')">${esc(r.name)} ${r.favorite?'⭐':''} <span style="font-size:11px;color:var(--sub);font-weight:500">▸作り方</span></div>
-      <div class="ing-list">${r.ings.map(g=>{
-        const has=inStock(g.name);
-        return`<span class="chip ${has?'ok':'danger'}">${has?'✓':'✕'} ${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}</span>`;}).join('')}
-      </div>
+      <div class="ing-list">${ingChips(r)}</div>
       ${miss.length?`<div class="meta" style="margin-top:4px">足りない: ${miss.map(m=>esc(m.name)).join('、')}</div>`:'<div class="meta" style="margin-top:4px;color:var(--green)">全部在庫でまかなえます。🎉</div>'}
       <div style="margin-top:6px" class="btn-row" style="margin:6px 0 0">
         <button class="btn small ghost" onclick="feedbackDish('${r.id}',true)">👍 また食べたい</button>
@@ -970,7 +1020,8 @@ function markCooked(){
   if(!combo.length){toast('献立が選択されていません。');return;}
   const today=new Date().toISOString().slice(0,10);
   combo.forEach(r=>r.lastCooked=today);
-  save();renderRecipes();toast('お疲れさまでした。🍚 最終調理日を記録しました。');
+  state.history.push({date:today,meal:'夜',ids:combo.map(r=>r.id)});
+  save();renderRecipes();renderCalendar();toast('お疲れさまでした。🍚 最終調理日を記録しました。');
 }
 
 /* ============ レシピ一覧 ============ */
@@ -1138,7 +1189,7 @@ function exportData(){
 document.getElementById('importInput').addEventListener('change',e=>{
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
-  r.onload=()=>{try{state={...defaultState(),...JSON.parse(r.result)};save();renderAll();toast('インポートが完了しました。📥');}catch{toast('読み込めませんでした。JSONの内容を確認してください。');}};
+  r.onload=()=>{try{state={...defaultState(),...JSON.parse(r.result)};migrate(state);save();renderAll();toast('インポートが完了しました。📥');}catch{toast('読み込めませんでした。JSONの内容を確認してください。');}};
   r.readAsText(f);e.target.value='';
 });
 function resetData(){
@@ -1195,7 +1246,8 @@ function feedbackDish(id,good){
   if(good){r.rating=Math.min(5,(r.rating||0)+1);idx=Math.max(0,idx-1);}      // 間隔を1段短く=もっと頻繁に
   else{r.rating=Math.max(0,(r.rating||0)-1);idx=Math.min(days.length-1,idx+1);} // 1段長く=控えめに
   r.freqDays=days[idx];
-  save();renderRecipes();
+  state.history.push({date:new Date().toISOString().slice(0,10),meal:'夜',ids:[id]});
+  save();renderRecipes();renderCalendar();
   toast(good?`「${r.name}」👍 ${r.freqDays}日に1回のペースに上げました。`:`「${r.name}」👎 ${r.freqDays}日に1回のペースに下げました。`);
 }
 
@@ -1215,47 +1267,82 @@ function daysUntilNextShopping(){
   days.forEach(d=>{let diff=(d-today+7)%7;if(diff===0)diff=7;if(diff<min)min=diff;});
   return Math.max(1,Math.min(7,min));
 }
-function pickBestExcl(cat,used){
+const MEAL_ORDER=['朝','昼','夜'];
+function pickBestExcl(cat,used,light){
   let pool=state.recipes.filter(r=>r.cat===cat&&!used.has(r.id));
   if(!pool.length)pool=state.recipes.filter(r=>r.cat===cat);
   if(!pool.length)return null;
-  return pool.map(r=>({r,s:scoreRecipe(r)})).sort((a,b)=>b.s-a.s)[0].r;
+  return pool.map(r=>({r,s:scoreRecipe(r,light)})).sort((a,b)=>b.s-a.s)[0].r;
+}
+function selectedPlanMeals(){
+  return MEAL_ORDER.filter(m=>{
+    const el=document.getElementById('planMeal'+({'朝':'Asa','昼':'Hiru','夜':'Yoru'}[m]));
+    return el&&el.checked;
+  });
 }
 function makePlan(){
-  const n=daysUntilNextShopping();
+  const n=Math.min(7,Math.max(1,parseInt(document.getElementById('planDays').value,10)||3));
+  const meals=selectedPlanMeals();
+  if(!meals.length){toast('朝・昼・夜のいずれか1つ以上を選んでください。');return;}
   const used=new Set();
   const days=[];
   for(let off=0;off<n;off++){
-    const ids=['主菜','副菜','汁物'].map(c=>pickBestExcl(c,used)).filter(Boolean).map(r=>{used.add(r.id);return r.id;});
-    days.push({offset:off,ids});
+    const dayMeals={};
+    meals.forEach(meal=>{
+      const light=(meal==='朝'||meal==='昼');
+      const cats=light?['汁物','主菜']:['主菜','副菜','汁物'];
+      const ids=cats.map(c=>pickBestExcl(c,used,light)).filter(Boolean).map(r=>{used.add(r.id);return r.id;});
+      if(ids.length)dayMeals[meal]=ids;
+    });
+    days.push({offset:off,meals:dayMeals});
   }
   state.plan={createdAt:new Date().toISOString().slice(0,10),days,prepDone:{}};
   save();renderPlan();
-  toast(`次の買い物日まで${n}日分の献立を作成しました。📅 仕込みの目安は30分です。`);
+  toast(`${n}日分・${meals.join('/')}の献立を作成しました。📅 仕込みの目安は30分です。`);
 }
 function dayLabel(off){
   if(off===0)return '今日';if(off===1)return '明日';
   const d=new Date();d.setDate(d.getDate()+off);
   return `${off+1}日目(${['日','月','火','水','木','金','土'][d.getDay()]})`;
 }
+function planEntries(){          // [{r, offset, meal}] 全日・全食事分の献立を平坦化
+  if(!state.plan)return[];
+  const out=[];
+  state.plan.days.forEach(day=>{
+    MEAL_ORDER.forEach(meal=>{
+      (day.meals&&day.meals[meal]||[]).forEach(id=>{
+        const r=state.recipes.find(x=>x.id===id);
+        if(r)out.push({r,offset:day.offset,meal});
+      });
+    });
+  });
+  return out;
+}
 function buildPrepTasks(){
   if(!state.plan)return[];
   const map={};
-  state.plan.days.forEach(day=>day.ids.forEach(id=>{
-    const r=state.recipes.find(x=>x.id===id);if(!r)return;
+  planEntries().forEach(({r,offset})=>{
     r.ings.forEach(g=>{
       const key=Object.keys(PREP).find(p=>g.name.includes(p)||p.includes(g.name));
       if(!key)return;
       if(!map[key])map[key]={name:key,how:PREP[key],qty:{},uses:[]};
       if(g.qty){const u=g.unit||'';map[key].qty[u]=(map[key].qty[u]||0)+g.qty;}
-      map[key].uses.push({recipe:r.name,offset:day.offset});
+      map[key].uses.push({recipe:r.name,offset,qty:g.qty,unit:g.unit||''});
     });
-  }));
+  });
   return Object.values(map).map(t=>{
     const offs=t.uses.map(u=>u.offset);
     const near=offs.some(o=>o<=1),far=offs.some(o=>o>=2);
     t.storage=near&&far?'冷蔵(〜明日分) + 冷凍(それ以降分)':far?'冷凍':'冷蔵';
     t.qtyText=Object.entries(t.qty).map(([u,q])=>`${Math.round(q*10)/10}${u}`).join(' + ');
+    t.usesText=t.uses.map(u=>`${u.recipe}(${dayLabel(u.offset)})`).join(' / ');
+    // 複数日にまたがる食材は「事前準備」として合計量と使い先を1行にまとめる(offset>=2は冷凍案内)
+    const spanDays=[...new Set(offs)];
+    if(spanDays.length>=2){
+      const parts=t.uses.map(u=>`${u.qty?`${Math.round(u.qty*10)/10}${u.unit}`:'一部'}は${dayLabel(u.offset)}の${u.recipe}で使用`);
+      const freezeNotes=[...new Set(t.uses.filter(u=>u.offset>=2).map(u=>dayLabel(u.offset)))].map(d=>`${d}の分は冷凍へ`);
+      t.summary=`${t.name}${t.qtyText?t.qtyText:''}をまとめて仕込み — ${parts.join('、')}${freezeNotes.length?`(${freezeNotes.join('、')})`:''}`;
+    }
     return t;
   });
 }
@@ -1266,25 +1353,32 @@ function togglePrep(name){
 }
 function renderPlan(){
   const box=document.getElementById('planBox');if(!box)return;
-  if(!state.plan){box.innerHTML='<div class="empty">買い物の日にまとめて献立を提案し、仕込みリストを作成します(パルシステム方式)。🍱</div>';document.getElementById('planCount').textContent='';return;}
+  if(!state.plan){box.innerHTML='<div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div>';document.getElementById('planCount').textContent='';return;}
   const tasks=buildPrepTasks();
   const doneN=tasks.filter(t=>state.plan.prepDone[t.name]).length;
   document.getElementById('planCount').textContent=`${state.plan.days.length}日分・${state.plan.createdAt}作成`;
   box.innerHTML=state.plan.days.map(day=>`
     <div class="card">
       <div class="meta" style="font-weight:900;color:var(--green)">${dayLabel(day.offset)}</div>
-      ${day.ids.map(id=>{const r=state.recipes.find(x=>x.id===id);if(!r)return'';
-        return`<div style="padding:4px 0;cursor:pointer" onclick="viewRecipe('${r.id}')"><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b> <span style="font-size:11px;color:var(--sub)">▸作り方</span></div>`;}).join('')}
+      ${MEAL_ORDER.filter(m=>day.meals&&day.meals[m]&&day.meals[m].length).map(m=>`
+        <div style="margin-top:6px">
+          <div class="meta" style="font-weight:800">${m}</div>
+          ${day.meals[m].map(id=>{const r=state.recipes.find(x=>x.id===id);if(!r)return'';
+            return`<div style="padding:3px 0 6px">
+              <div style="cursor:pointer" onclick="viewRecipe('${r.id}')"><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b> <span style="font-size:11px;color:var(--sub)">▸作り方</span></div>
+              <div class="ing-list" style="margin-top:4px">${ingChips(r)}</div>
+            </div>`;}).join('')}
+        </div>`).join('')}
     </div>`).join('')+
   `<div class="card">
-    <div class="meta" style="font-weight:900;color:var(--green);margin-bottom:6px">🔪 買い物後の仕込みリスト (${doneN}/${tasks.length})</div>
+    <div class="meta" style="font-weight:900;color:var(--green);margin-bottom:6px">🔪 事前準備リスト (${doneN}/${tasks.length})</div>
     ${tasks.length?tasks.map(t=>`
       <div class="shop-item ${state.plan.prepDone[t.name]?'done':''}">
         <input type="checkbox" ${state.plan.prepDone[t.name]?'checked':''} onchange="togglePrep('${esc(t.name)}')">
         <div class="grow">
           <div class="name">${esc(t.name)} ${t.qtyText?`<span style="font-weight:500;font-size:12px;color:var(--sub)">計${t.qtyText}</span>`:''}</div>
           <div class="meta">${esc(t.how)} → <b>${t.storage}</b></div>
-          <div class="meta">使い道: ${t.uses.map(u=>`${esc(u.recipe)}(${dayLabel(u.offset)})`).join(' / ')}</div>
+          ${t.summary?`<div class="meta" style="color:var(--green);font-weight:700">${esc(t.summary)}</div>`:`<div class="meta">使い道: ${esc(t.usesText)}</div>`}
         </div>
       </div>`).join(''):'<div class="empty">下処理が必要な食材はありません。</div>'}
     <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ もやし・きゅうり・豆腐系は日持ちしないため、当日の調理を推奨します。</p>
@@ -1293,8 +1387,7 @@ function renderPlan(){
 function addPlanMissingToShopping(){
   if(!state.plan){toast('先に「まとめて提案」を押してください。');return;}
   const seen={};let added=0;
-  state.plan.days.forEach(day=>day.ids.forEach(id=>{
-    const r=state.recipes.find(x=>x.id===id);if(!r)return;
+  planEntries().forEach(({r})=>{
     missingIngs(r).forEach(m=>{
       const k=m.name+'|'+(m.unit||'');
       if(seen[k]){seen[k].qty+=(m.qty||0);return;}
@@ -1302,10 +1395,53 @@ function addPlanMissingToShopping(){
       const item={id:uid(),name:m.name,qty:m.qty||1,unit:m.unit||'',menu:'まとめ献立',checked:false,memo:''};
       seen[k]=item;state.shopping.push(item);added++;
     });
-  }));
+  });
   save();renderShopping();
   toast(added?`まとめ買い${added}品をリストに追加しました。🛒`:'足りないものはすでにリストにあります。');
   if(added)switchTab('shop');
+}
+/* ============ 献立カレンダー ============ */
+let calMonth=new Date();calMonth.setDate(1);calMonth.setHours(0,0,0,0);
+let calSelectedDate=null;
+function calMonthShift(diff){
+  calMonth.setMonth(calMonth.getMonth()+diff);
+  calSelectedDate=null;
+  renderCalendar();
+}
+function historyForDate(dateStr){return state.history.filter(h=>h.date===dateStr);}
+function selectCalDay(dateStr){calSelectedDate=dateStr;renderCalendar();}
+function renderCalendar(){
+  const grid=document.getElementById('calGrid');if(!grid)return;
+  const label=document.getElementById('calMonthLabel');
+  const y=calMonth.getFullYear(),m=calMonth.getMonth();
+  label.textContent=`${y}年${m+1}月`;
+  const firstDow=new Date(y,m,1).getDay();
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const todayStr=new Date().toISOString().slice(0,10);
+  const dows=['日','月','火','水','木','金','土'];
+  let html=dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<firstDow;i++)html+='<button class="cal-day empty" disabled></button>';
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const cls=['cal-day'];
+    if(historyForDate(dateStr).length)cls.push('has-history');
+    if(dateStr===todayStr)cls.push('today');
+    if(dateStr===calSelectedDate)cls.push('selected');
+    html+=`<button class="${cls.join(' ')}" onclick="selectCalDay('${dateStr}')">${d}</button>`;
+  }
+  grid.innerHTML=html;
+  renderCalDetail();
+}
+function renderCalDetail(){
+  const box=document.getElementById('calDetail');if(!box)return;
+  if(!calSelectedDate){box.innerHTML='<div class="meta">日をタップすると、その日の献立を表示します。</div>';return;}
+  const entries=historyForDate(calSelectedDate);
+  if(!entries.length){box.innerHTML=`<div class="meta">${esc(calSelectedDate)}: 記録はありません。</div>`;return;}
+  box.innerHTML=`<div class="meta" style="font-weight:800;margin-bottom:4px">${esc(calSelectedDate)}</div>`+
+    entries.map(h=>{
+      const names=(h.ids||[]).map(id=>{const r=state.recipes.find(x=>x.id===id);return r?esc(r.name):'(削除済み)';}).join('、');
+      return `<div class="meta">${esc(h.meal||'夜')}: ${names||'(削除済み)'}</div>`;
+    }).join('');
 }
 
 /* ============ 家族同期 (Supabase REST) ============ */
@@ -1434,11 +1570,16 @@ function renderAll(){
     const on=b.dataset.loc===state.ui.locFilter;
     b.classList.toggle('on',on);b.style.background=on?'var(--green)':'';b.style.color=on?'#fff':'';
   });
-  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();
+  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();renderCalendar();
   if(state.current)renderSuggestion();
   const gk=document.getElementById('gemini-key');if(gk)gk.value=loadGeminiKey();
 }
+function initPlanUI(){
+  const el=document.getElementById('planDays');
+  if(el)el.value=Math.min(7,Math.max(1,daysUntilNextShopping()));
+}
 renderAll();
+initPlanUI();
 renderSyncUI();
 maybeShowTutorial();
 if(syncCfg.enabled)pull();

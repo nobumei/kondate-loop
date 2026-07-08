@@ -8,6 +8,8 @@ interface AppState {
   receipts: Receipt[];
   settings: Settings;
   current: string[] | null;   // 提案中の献立 recipe.id 配列
+  plan: Plan | null;
+  history: HistoryEntry[];    // v1.6: 献立カレンダー用の調理履歴
   ui: { locFilter: 'all'|'冷蔵'|'冷凍'|'常温'; favOnly: boolean };
 }
 
@@ -37,9 +39,21 @@ interface Recipe {
   seed: boolean;         // trueなら削除ボタン非表示
 }
 
-// v1.2: まとめ献立と仕込み
-// state.plan: { createdAt: string, days: {offset:number, ids:string[]}[], prepDone: Record<string,boolean> } | null
+// v1.2: まとめ献立と仕込み(v1.6でdays構造を拡張)
+interface Plan {
+  createdAt: string;
+  days: { offset: number; meals: Partial<Record<'朝'|'昼'|'夜', string[]>> }[];  // v1.6: 食事ごとのrecipe.id配列
+  prepDone: Record<string, boolean>;
+}
 // 仕込みタスクは PREP 辞書(食材名→下処理)から動的生成。offset<=1のみ→冷蔵 / >=2を含む→冷凍案内。
+// v1.6: 複数日にまたがる食材は「事前準備」の集約行(合計量+使い先内訳、offset>=2は冷凍案内)を生成する(buildPrepTasks()のt.summary)。
+// v1.6: まとめ提案UIで「何日分(1〜7)」「朝/昼/夜(既定は夜のみ)」を選択できる。朝・昼は汁物+主菜1品の軽量構成で、時間の短いレシピを優先するスコアリング(scoreRecipeのlightフラグ)。
+
+interface HistoryEntry {           // v1.6: 献立カレンダー用の調理履歴
+  date: string;                    // 'YYYY-MM-DD'
+  meal: '朝'|'昼'|'夜';             // markCooked()/feedbackDish()からの記録は既定で'夜'
+  ids: string[];                   // recipe.id配列。削除済みレシピは表示側で「(削除済み)」扱い
+}
 
 interface ShoppingItem {
   id: string; name: string; qty: number; unit: string;
@@ -99,6 +113,11 @@ interface SyncConfig {
 - レシートOCR結果(`openOcrModal`)の食材名にも初期値として適用する(モーダル上で編集可能)。
 - ユーザー登録分は `state.settings.normDict` に載るため、家族同期・エクスポートJSONの対象に含まれる。
 
+## 在庫チップの手動補正 (v1.6で追加)
+- 提案画面(単発・まとめ両方)の材料は `effectiveHas(name)` で表示する。`inStock()` の結果をグローバル変数 `stockOverride`(`Map`、正規化名→boolean)で上書きできる、提案セッション中のみの一時的な補正。
+- `toggleStockChip(name)` でチップをタップすると◯⇄✗がトグルされる。`stockOverride` は `state` に含まれず保存されない(リロードで消える)。
+- `missingIngs()`(買い物リスト生成の元)は `effectiveHas()` を経由するため、手動補正が「まとめ買いリストへ」「足りない食材を買い物リストへ」に反映される。`scoreRecipe()` の採点(実在庫のみ)には影響しない。
+
 ## マイグレーションルール
 - スキーマ変更時は `load()` 内で旧→新変換し、この表に追記する。
 
@@ -110,6 +129,7 @@ interface SyncConfig {
 | v1.3 | freq(3値)→freqDays(間隔日数)へ移行。load()/applyRemote()のmigrate()で自動変換 | 2026-07-07 |
 | v1.4 | レシートOCR(Gemini)追加。`kondate-loop-gemini`キー新設(AppState自体は不変) | 2026-07-07 |
 | v1.5 | Settings.normDict追加(食材名の正規化辞書。migrate()で既存データに補完)。`kondate-loop-tutorial-seen`キー新設 | 2026-07-08 |
+| v1.6 | plan.days[].ids → days[].meals.{朝,昼,夜}へ拡張(旧ids配列はmigrate()で`meals.夜`に変換)。state.history(献立カレンダー用)を新設、migrate()で`[]`補完。在庫チップの手動補正(非永続) | 2026-07-08 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
