@@ -118,6 +118,10 @@ interface SyncConfig {
 - `toggleStockChip(name)` でチップをタップすると◯⇄✗がトグルされる。`stockOverride` は `state` に含まれず保存されない(リロードで消える)。
 - `missingIngs()`(買い物リスト生成の元)は `effectiveHas()` を経由するため、手動補正が「まとめ買いリストへ」「足りない食材を買い物リストへ」に反映される。`scoreRecipe()` の採点(実在庫のみ)には影響しない。
 
+## 献立提案への要望反映・調理モード (v1.7で追加。AppStateスキーマ変更なし)
+- 提案画面(単発・まとめ)の「要望」入力(音声/テキスト)とAIの提案理由は、在庫チップの手動補正(`stockOverride`, v1.6)と同様にグローバル変数(`suggestReason`/`planReason`)で保持するセッション内のみの一時値。`state`には含まれず、保存もされない(リロードで消える)。
+- 調理モードの現在レシピ・工程番号は `cookState`(グローバル変数、非永続)で管理し、`state`やAppStateスキーマには一切影響しない。
+
 ## マイグレーションルール
 - スキーマ変更時は `load()` 内で旧→新変換し、この表に追記する。
 
@@ -130,6 +134,7 @@ interface SyncConfig {
 | v1.4 | レシートOCR(Gemini)追加。`kondate-loop-gemini`キー新設(AppState自体は不変) | 2026-07-07 |
 | v1.5 | Settings.normDict追加(食材名の正規化辞書。migrate()で既存データに補完)。`kondate-loop-tutorial-seen`キー新設 | 2026-07-08 |
 | v1.6 | plan.days[].ids → days[].meals.{朝,昼,夜}へ拡張(旧ids配列はmigrate()で`meals.夜`に変換)。state.history(献立カレンダー用)を新設、migrate()で`[]`補完。在庫チップの手動補正(非永続) | 2026-07-08 |
+| v1.7 | 献立提案への要望入力(音声+テキスト)のGemini反映・調理モード追加。AppState自体は不変(要望・提案理由・調理モードの状態はすべて非永続のグローバル変数) | 2026-07-10 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。

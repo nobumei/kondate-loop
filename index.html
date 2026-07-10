@@ -274,8 +274,15 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <div class="card" id="suggestBox">
     <div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div>
   </div>
+  <div class="field" style="margin-bottom:8px">
+    <label>今日の要望(任意・AIに伝えます)</label>
+    <div class="row">
+      <input id="wishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
+      <button type="button" class="icon-btn mic-btn" id="wishMicBtn" style="display:none" onclick="startDictation('wishInput',this)" aria-label="音声で要望を入力">🎤</button>
+    </div>
+  </div>
   <div class="btn-row">
-    <button class="btn wide" onclick="suggest()">🎲 献立を提案する</button>
+    <button class="btn wide" id="suggestBtn" onclick="suggest()">🎲 献立を提案する</button>
   </div>
   <div class="btn-row">
     <button class="btn sub small" onclick="speakMenu()">🔊 献立を読み上げ</button>
@@ -291,8 +298,15 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <label class="meal-check"><input type="checkbox" id="planMealHiru">昼</label>
     <label class="meal-check"><input type="checkbox" id="planMealYoru" checked>夜</label>
   </div>
+  <div class="field" style="margin-bottom:8px">
+    <label>まとめ提案の要望(任意・AIに伝えます)</label>
+    <div class="row">
+      <input id="planWishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
+      <button type="button" class="icon-btn mic-btn" id="planWishMicBtn" style="display:none" onclick="startDictation('planWishInput',this)" aria-label="音声で要望を入力">🎤</button>
+    </div>
+  </div>
   <div class="btn-row">
-    <button class="btn small" onclick="makePlan()">📅 まとめて提案</button>
+    <button class="btn small" id="planMakeBtn" onclick="makePlan()">📅 まとめて提案</button>
     <button class="btn small sub" onclick="addPlanMissingToShopping()">🛒 まとめ買いリストへ</button>
   </div>
   <div id="planBox"><div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div></div>
@@ -521,6 +535,26 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
 </div>
 
+<!-- 調理モードモーダル -->
+<div class="modal-bg" id="cookModeModal">
+  <div class="modal">
+    <h3 id="cookModeTitle">調理モード</h3>
+    <div style="text-align:center;padding:8px 0 20px">
+      <div class="meta" style="font-size:14px;font-weight:800;color:var(--green)" id="cookStepLabel">工程 1/1</div>
+      <div style="font-size:22px;font-weight:900;line-height:1.6;margin-top:12px" id="cookStepText"></div>
+    </div>
+    <div class="btn-row" style="justify-content:center">
+      <button class="btn ghost" id="cookPrevBtn" onclick="cookPrev()">◀ 前へ</button>
+      <button class="btn sub" id="cookRepeatBtn" onclick="cookRepeat()">🔁 もう一回</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn wide" id="cookNextBtn" onclick="cookNextOrClose()">次へ ▶</button>
+    </div>
+    <p style="font-size:11px;color:var(--sub);text-align:center;margin-top:2px" id="cookVoiceHint"></p>
+    <button class="btn ghost wide" onclick="closeCookMode()">閉じる</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 /* ============ state ============ */
@@ -606,6 +640,7 @@ function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{
   if(e.target!==m)return;
+  if(m.id==='cookModeModal'){closeCookMode();return;}
   m.classList.remove('open');
   if(m.id==='tutorialModal')markTutorialSeen();
 }));
@@ -977,8 +1012,106 @@ function searchLinks(r){
   const delish='https://www.google.com/search?q='+encodeURIComponent(`${r.name} ${ings} レシピ DELISH KITCHEN`);
   return`<span class="links"><a href="${kurashiru}" target="_blank" rel="noopener">🔍 クラシル</a><a href="${delish}" target="_blank" rel="noopener">🔍 DELISH KITCHEN</a></span>`;
 }
-function suggest(){
+// 要望入力(音声/テキスト)をGeminiに渡して献立候補を取得する。要望が空の時は一切呼ばれない
+const MENU_RESPONSE_SCHEMA={
+  type:'OBJECT',
+  properties:{
+    days:{type:'ARRAY',items:{type:'OBJECT',properties:{
+      offset:{type:'NUMBER'},
+      meals:{type:'OBJECT',properties:{
+        '朝':{type:'ARRAY',items:{type:'STRING'}},
+        '昼':{type:'ARRAY',items:{type:'STRING'}},
+        '夜':{type:'ARRAY',items:{type:'STRING'}}
+      }}
+    },required:['offset','meals']}},
+    reason:{type:'STRING'}
+  },
+  required:['days','reason']
+};
+function buildMenuPrompt(wish,frame){
+  const inv=state.inventory.map(i=>({name:i.name,expiry:i.expiry||null}));
+  const recipes=state.recipes.map(r=>({id:r.id,name:r.name,cat:r.cat,time:r.time,ings:r.ings.map(g=>g.name)}));
+  const mealComposition={'夜':'主菜1品・副菜1品・汁物1品','朝':'主菜1品・汁物1品(時短優先)','昼':'主菜1品・汁物1品(時短優先)'};
+  const frameText=frame.single
+    ?'今日1食分の献立を提案してください(主菜1品・副菜1品・汁物1品)。days配列は1件のみにし、offset=0、meals.夜にレシピidを3件入れてください(朝・昼は空でよい)。'
+    :`${frame.days}日分(offset=0〜${frame.days-1})、各日について次の食事を提案してください: ${frame.meals.map(m=>`${m}(${mealComposition[m]})`).join('、')}。`;
+  return[
+    'あなたは4人家族向けの家庭料理アドバイザーです。',
+    `ユーザーの要望: 「${wish}」`,
+    `在庫食材(JSON): ${JSON.stringify(inv)}`,
+    `登録レシピ一覧(JSON、idはこの中からのみ選ぶこと): ${JSON.stringify(recipes)}`,
+    frameText,
+    '在庫にある食材や期限が近い食材を活用しつつ、ユーザーの要望を最優先して選んでください。',
+    '必ずレシピ一覧に実在するidだけを使い、存在しないidや架空のidは絶対に使わないでください。'
+  ].join('\n');
+}
+async function callGeminiForMenu(wish,frame){
+  const key=loadGeminiKey();
+  if(!key)throw new Error('Gemini APIキーが未設定のため通常の提案を使用します。');
+  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{parts:[{text:buildMenuPrompt(wish,frame)}]}],
+      generationConfig:{responseMimeType:'application/json',responseSchema:MENU_RESPONSE_SCHEMA}
+    })
+  });
+  if(!res.ok){
+    if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
+    if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
+    throw new Error(`通信エラーです(HTTP ${res.status})`);
+  }
+  const data=await res.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  const parsed=JSON.parse(text);
+  if(!parsed||!Array.isArray(parsed.days))throw new Error('AIの提案を解析できませんでした。');
+  return parsed;
+}
+// AIが返したid配列からcats(カテゴリ)ごとに1件ずつ組み立てる。不正id(存在しない/カテゴリ重複)は無視し、
+// 不足分はpickBestExcl()で従来ロジックが補う。usedは呼び出し元と共有するSet(既出idの重複防止)
+function comboFromIdsForCats(ids,cats,used,light){
+  const byCat={};
+  ids.forEach(id=>{
+    if(used.has(id))return;
+    const r=state.recipes.find(x=>x.id===id);
+    if(!r||!cats.includes(r.cat)||byCat[r.cat])return;
+    byCat[r.cat]=r;used.add(r.id);
+  });
+  cats.forEach(cat=>{
+    if(!byCat[cat]){
+      const r=pickBestExcl(cat,used,light);
+      if(r){byCat[cat]=r;used.add(r.id);}
+    }
+  });
+  return cats.map(c=>byCat[c]).filter(Boolean);
+}
+let suggestReason=null;   // AIの提案理由。セッション内のみ・state非保存
+async function suggest(){
   if(!state.inventory.length){toast('先に在庫を登録すると精度が上がります。🧊');}
+  const wish=(document.getElementById('wishInput')?.value||'').trim();
+  suggestReason=null;
+  if(wish){
+    const btn=document.getElementById('suggestBtn');
+    const orig=btn?btn.textContent:null;
+    if(btn){btn.disabled=true;btn.textContent='⏳ AIが考え中…';}
+    try{
+      const aiRes=await callGeminiForMenu(wish,{single:true});
+      const day=(aiRes.days||[])[0];
+      const idsRaw=(day&&day.meals&&day.meals['夜'])||[];
+      const validIds=idsRaw.filter(id=>state.recipes.some(r=>r.id===id));
+      const combo=comboFromIdsForCats(validIds,['主菜','副菜','汁物'],new Set(),false);
+      if(combo.length){
+        state.current=combo.map(r=>r.id);
+        suggestReason=aiRes.reason||null;
+        save();renderSuggestion();
+        return;
+      }
+    }catch(e){
+      console.error(e);
+      toast(e.message||'AI提案に失敗したため通常の提案を使用します。');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=orig;}
+    }
+  }
   const combo=['主菜','副菜','汁物'].map(pickBest).filter(Boolean);
   if(!combo.length){document.getElementById('suggestBox').innerHTML='<div class="empty">レシピが登録されていません。「＋ レシピを追加」から登録してください。</div>';return;}
   state.current=combo.map(r=>r.id);save();
@@ -989,7 +1122,8 @@ function renderSuggestion(){
   const combo=currentRecipes();
   if(!combo.length)return;
   const totalTime=combo.reduce((a,r)=>a+(r.time||0),0);
-  document.getElementById('suggestBox').innerHTML=combo.map(r=>{
+  const reasonHtml=suggestReason?`<div class="meta" style="color:var(--green);font-weight:700;margin-bottom:8px">💡 AIの提案理由: ${esc(suggestReason)}</div>`:'';
+  document.getElementById('suggestBox').innerHTML=reasonHtml+combo.map(r=>{
     const miss=missingIngs(r);
     return`<div class="menu-slot">
       <div class="role">${r.cat} ・ 約${r.time}分</div>
@@ -1220,6 +1354,29 @@ function speakShopping(){
   speak('買い物リストです。'+items.map(i=>`${i.name}、${i.qty||''}${i.unit||''}`).join('。')+'。以上です。');
 }
 
+/* ============ 音声入力 (Web Speech API: SpeechRecognition) ============ */
+// 要望入力の🎤・調理モードの音声待受で共通利用。非対応ブラウザではfeature-detectしてテキスト入力のみにフォールバック
+const SR_CLASS=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+function initMicButtons(){
+  if(!SR_CLASS)return;   // 非対応ブラウザは初期状態(非表示)のまま
+  document.querySelectorAll('.mic-btn').forEach(b=>b.style.display='inline-flex');
+}
+function startDictation(inputId,btnEl){
+  if(!SR_CLASS){toast('このブラウザは音声入力に対応していません。');return;}
+  const rec=new SR_CLASS();
+  rec.lang='ja-JP';rec.interimResults=false;rec.maxAlternatives=1;
+  const orig=btnEl.textContent;
+  btnEl.disabled=true;btnEl.textContent='🎙️';
+  rec.onresult=e=>{
+    const text=e.results[0]&&e.results[0][0]&&e.results[0][0].transcript||'';
+    const input=document.getElementById(inputId);
+    if(input&&text)input.value=text;
+  };
+  rec.onerror=()=>{toast('音声認識に失敗しました。');};
+  rec.onend=()=>{btnEl.disabled=false;btnEl.textContent=orig;};
+  try{rec.start();}catch(e){btnEl.disabled=false;btnEl.textContent=orig;}
+}
+
 /* ============ レシピ詳細(作り方)ビュー ============ */
 function viewRecipe(id){
   const r=state.recipes.find(x=>x.id===id);if(!r)return;
@@ -1232,12 +1389,96 @@ function viewRecipe(id){
       const has=inStock(g.name);
       return`<span class="chip ${has?'ok':'danger'}">${has?'✓':'✕'} ${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}</span>`;}).join('')}</div>
     <div class="meta" style="margin-bottom:6px">作り方</div>
-    ${(r.steps&&r.steps.length)?`<ol style="padding-left:22px;font-size:14px;line-height:1.9;margin-bottom:12px">${r.steps.map(st=>`<li>${esc(st)}</li>`).join('')}</ol>`:'<div class="empty" style="margin-bottom:12px">作り方が未登録です。✏️から追加できます。</div>'}
+    ${(r.steps&&r.steps.length)?`<ol style="padding-left:22px;font-size:14px;line-height:1.9;margin-bottom:8px">${r.steps.map(st=>`<li>${esc(st)}</li>`).join('')}</ol><div class="btn-row" style="margin:0 0 12px"><button class="btn small" onclick="this.closest('.modal-bg').remove();openCookMode('${r.id}')">🔊 調理モード</button></div>`:'<div class="empty" style="margin-bottom:12px">作り方が未登録です。✏️から追加できます。</div>'}
     <div style="margin-bottom:12px">もっと詳しく: ${searchLinks(r)}</div>
     <button class="btn ghost wide" onclick="this.closest('.modal-bg').remove()">閉じる</button>
   </div>`;
   bg.onclick=()=>bg.remove();
   document.body.appendChild(bg);
+}
+
+/* ============ 調理モード (作り方の対話型読み上げ) ============ */
+let cookState=null;     // {recipeId, name, steps, idx} セッション中のみ・非永続
+let cookRecognition=null;
+function openCookMode(id){
+  const r=state.recipes.find(x=>x.id===id);
+  if(!r||!r.steps||!r.steps.length){toast('作り方が登録されていません。');return;}
+  cookState={recipeId:id,name:r.name,steps:r.steps,idx:0};
+  document.getElementById('cookModeTitle').textContent=`🔊 ${r.name}`;
+  document.getElementById('cookVoiceHint').textContent=SR_CLASS?'🎤「つぎ」「もう一回」「もどる」で音声操作もできます':'';
+  openModal('cookModeModal');
+  renderCookStep();
+  speakCookStep();
+}
+function renderCookStep(){
+  if(!cookState)return;
+  const total=cookState.steps.length;
+  const done=cookState.idx>=total;
+  document.getElementById('cookStepLabel').textContent=done?'完了 🎉':`工程 ${cookState.idx+1}/${total}`;
+  document.getElementById('cookStepText').textContent=done?`「${cookState.name}」お疲れさまでした!`:cookState.steps[cookState.idx];
+  document.getElementById('cookPrevBtn').disabled=cookState.idx<=0;
+  document.getElementById('cookRepeatBtn').style.display=done?'none':'';
+  document.getElementById('cookNextBtn').textContent=done?'閉じる':'次へ ▶';
+}
+function speakCookStep(){
+  if(!cookState)return;
+  stopCookListening();
+  if(!('speechSynthesis'in window))return;   // 読み上げ非対応でも画面表示・タップ操作は使える
+  speechSynthesis.cancel();
+  const done=cookState.idx>=cookState.steps.length;
+  const text=done?`完了です。お疲れさまでした。`:cookState.steps[cookState.idx];
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='ja-JP';u.rate=1.0;
+  if(!done)u.onend=()=>{if(cookState)startCookListening();};
+  speechSynthesis.speak(u);
+}
+function cookNext(){
+  if(!cookState)return;
+  if(cookState.idx<cookState.steps.length)cookState.idx++;
+  renderCookStep();speakCookStep();
+}
+function cookNextOrClose(){
+  if(cookState&&cookState.idx>=cookState.steps.length){closeCookMode();return;}
+  cookNext();
+}
+function cookPrev(){
+  if(!cookState||cookState.idx<=0)return;
+  cookState.idx--;
+  renderCookStep();speakCookStep();
+}
+function cookRepeat(){
+  if(!cookState||cookState.idx>=cookState.steps.length)return;
+  speakCookStep();
+}
+function startCookListening(){
+  if(!SR_CLASS||!cookState)return;
+  const modal=document.getElementById('cookModeModal');
+  if(!modal||!modal.classList.contains('open'))return;   // モーダル表示中のみ待受
+  try{
+    cookRecognition=new SR_CLASS();
+    cookRecognition.lang='ja-JP';cookRecognition.interimResults=false;cookRecognition.maxAlternatives=1;
+    cookRecognition.onresult=e=>{
+      const t=e.results[0]&&e.results[0][0]&&e.results[0][0].transcript||'';
+      if(/つぎ|次|オッケー|ok/i.test(t))cookNext();
+      else if(/もう?一回|もういちど/.test(t))cookRepeat();
+      else if(/もどる|戻る|前/.test(t))cookPrev();
+      // 誤認識(いずれにも一致しない発話)時は何もしない
+    };
+    cookRecognition.onerror=()=>{cookRecognition=null;};
+    cookRecognition.onend=()=>{cookRecognition=null;};
+    cookRecognition.start();
+  }catch(e){cookRecognition=null;}
+}
+function stopCookListening(){
+  if(!cookRecognition)return;
+  try{cookRecognition.onresult=null;cookRecognition.onend=null;cookRecognition.onerror=null;cookRecognition.abort();}catch(e){}
+  cookRecognition=null;
+}
+function closeCookMode(){
+  if('speechSynthesis'in window)speechSynthesis.cancel();
+  stopCookListening();
+  cookState=null;
+  closeModal('cookModeModal');
 }
 function feedbackDish(id,good){
   const r=state.recipes.find(x=>x.id===id);if(!r)return;
@@ -1280,10 +1521,46 @@ function selectedPlanMeals(){
     return el&&el.checked;
   });
 }
-function makePlan(){
+let planReason=null;   // AIの提案理由。セッション内のみ・state非保存
+async function makePlan(){
   const n=Math.min(7,Math.max(1,parseInt(document.getElementById('planDays').value,10)||3));
   const meals=selectedPlanMeals();
   if(!meals.length){toast('朝・昼・夜のいずれか1つ以上を選んでください。');return;}
+  const wish=(document.getElementById('planWishInput')?.value||'').trim();
+  planReason=null;
+  if(wish){
+    const btn=document.getElementById('planMakeBtn');
+    const orig=btn?btn.textContent:null;
+    if(btn){btn.disabled=true;btn.textContent='⏳ AIが考え中…';}
+    try{
+      const aiRes=await callGeminiForMenu(wish,{days:n,meals});
+      const used=new Set();
+      const days=[];
+      for(let off=0;off<n;off++){
+        const aiDay=(aiRes.days||[]).find(d=>d.offset===off);
+        const dayMeals={};
+        meals.forEach(meal=>{
+          const light=(meal==='朝'||meal==='昼');
+          const idsRaw=(aiDay&&aiDay.meals&&aiDay.meals[meal])||[];
+          const validIds=idsRaw.filter(id=>state.recipes.some(r=>r.id===id));
+          const cats=light?['汁物','主菜']:['主菜','副菜','汁物'];
+          const combo=comboFromIdsForCats(validIds,cats,used,light);
+          if(combo.length)dayMeals[meal]=combo.map(r=>r.id);
+        });
+        days.push({offset:off,meals:dayMeals});
+      }
+      state.plan={createdAt:new Date().toISOString().slice(0,10),days,prepDone:{}};
+      planReason=aiRes.reason||null;
+      save();renderPlan();
+      toast(`${n}日分・${meals.join('/')}の献立を作成しました。📅 仕込みの目安は30分です。`);
+      return;
+    }catch(e){
+      console.error(e);
+      toast(e.message||'AI提案に失敗したため通常の提案を使用します。');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=orig;}
+    }
+  }
   const used=new Set();
   const days=[];
   for(let off=0;off<n;off++){
@@ -1357,7 +1634,8 @@ function renderPlan(){
   const tasks=buildPrepTasks();
   const doneN=tasks.filter(t=>state.plan.prepDone[t.name]).length;
   document.getElementById('planCount').textContent=`${state.plan.days.length}日分・${state.plan.createdAt}作成`;
-  box.innerHTML=state.plan.days.map(day=>`
+  const reasonHtml=planReason?`<div class="meta" style="color:var(--green);font-weight:700;margin-bottom:8px">💡 AIの提案理由: ${esc(planReason)}</div>`:'';
+  box.innerHTML=reasonHtml+state.plan.days.map(day=>`
     <div class="card">
       <div class="meta" style="font-weight:900;color:var(--green)">${dayLabel(day.offset)}</div>
       ${MEAL_ORDER.filter(m=>day.meals&&day.meals[m]&&day.meals[m].length).map(m=>`
@@ -1580,6 +1858,7 @@ function initPlanUI(){
 }
 renderAll();
 initPlanUI();
+initMicButtons();
 renderSyncUI();
 maybeShowTutorial();
 if(syncCfg.enabled)pull();
