@@ -60,3 +60,4 @@
 - チラシ特売OCR: `runDealsOcr()`(Gemini呼び出し、画像は保存しない)→ `openDealsModal()`(確認)→ `addDealsToState()`(state.deals反映)。スコア加点は`scoreRecipe()`内、バッジ表示は`dealBadge()`/`ingChips()`
 - 外部API: `searchLinks()` を差し替え
 - 家族共有: `save()/load()` をリモート同期版に差し替え(スキーマは維持)
+- 2026-07-13: 家族同期のSupabaseはRLS無効で匿名から全読み書き可の状態だった。householdsを直接アクセス禁止(RLS)にし、あいことばの1行だけ読み書きするSECURITY DEFINER RPC(household_pull/push)経由に変更。publishable keyは公開前提のため防御線はRLSのみという前提を明文化。

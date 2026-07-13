@@ -1966,7 +1966,9 @@ function renderCalDetail(){
 }
 
 /* ============ 家族同期 (Supabase REST) ============ */
-// publishable keyは公開前提のキー。書き込み範囲はRLSポリシーで制御されている。
+// publishable key(公開前提)は誰でも見えるので、防御はRLS+RPCで行う。
+// householdsテーブルはanonから直接アクセス不可(RLS)。household_pull/pushのRPC経由でのみ、
+// あいことば(id)に一致する1行だけを読み書きできる(全行列挙・他人行の改変は不可)。
 const SYNC_URL='https://twidxiiwgivcykoppgdj.supabase.co';
 const SYNC_KEY='sb_publishable_fk3-C5rn4P2McuccDHgr2A_gR7rm-vx';
 const SYNC_CFG_KEY='kondate-loop-sync';
@@ -1979,6 +1981,18 @@ function loadSyncCfg(){
 }
 function saveSyncCfg(){localStorage.setItem(SYNC_CFG_KEY,JSON.stringify(syncCfg));}
 function syncHeaders(){return{'apikey':SYNC_KEY,'Authorization':'Bearer '+SYNC_KEY,'Content-Type':'application/json'};}
+// あいことば(householdId)の行だけを読み書きするRPC。テーブルへの直接アクセスはRLSで遮断済み。
+async function rpcPull(hid){
+  const res=await fetch(`${SYNC_URL}/rest/v1/rpc/household_pull`,{method:'POST',headers:syncHeaders(),body:JSON.stringify({p_id:hid})});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const rows=await res.json();            // [{data, updated_at}] または []
+  return(rows&&rows.length)?rows[0]:null;
+}
+async function rpcPush(hid,data){
+  const res=await fetch(`${SYNC_URL}/rest/v1/rpc/household_push`,{method:'POST',headers:syncHeaders(),body:JSON.stringify({p_id:hid,p_data:data})});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  return await res.json();                // サーバが確定した updated_at (文字列)
+}
 function stripForSync(s){const{receipts,ui,...rest}=s;return rest;}
 function setSyncStatus(icon,cls,text){
   const el=document.getElementById('syncStatus');if(!el)return;
@@ -1999,16 +2013,14 @@ async function toggleSync(){
   if(hid.length<8){toast('あいことばは8文字以上にしてください。');return;}
   setSyncStatus('🟡','warn','接続確認中…');
   try{
-    const res=await fetch(`${SYNC_URL}/rest/v1/households?id=eq.${encodeURIComponent(hid)}&select=data,updated_at`,{headers:syncHeaders()});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const rows=await res.json();
-    if(rows.length){
+    const row=await rpcPull(hid);
+    if(row){
       if(state.inventory.length&&!confirm('このあいことばには既に家族のデータがあります。\nこの端末の在庫・レシピ等は家族のデータで置き換わりますが、よろしいですか?\n(レシート画像はこの端末に残ります)'))
         {setSyncStatus('⚪','loc','未設定');return;}
-      applyRemote(rows[0]);
+      applyRemote(row);
     }
     syncCfg={enabled:true,householdId:hid,lastSyncedAt:syncCfg.lastSyncedAt};saveSyncCfg();
-    if(!rows.length)await pushNow();      // 初回はこの端末のデータを家の初期データにする
+    if(!row)await pushNow();      // 初回はこの端末のデータを家の初期データにする
     renderSyncUI();toast('家族同期を開始しました。👨‍👩‍👧‍👦✨');
   }catch(e){
     console.error(e);setSyncStatus('🔴','danger','接続エラー: '+e.message);
@@ -2029,11 +2041,9 @@ function applyRemote(row){
 async function pull(){
   if(!syncCfg.enabled||syncBusy)return;
   try{
-    const res=await fetch(`${SYNC_URL}/rest/v1/households?id=eq.${encodeURIComponent(syncCfg.householdId)}&select=data,updated_at`,{headers:syncHeaders()});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const rows=await res.json();
-    if(rows.length&&(!syncCfg.lastSyncedAt||new Date(rows[0].updated_at)>new Date(syncCfg.lastSyncedAt))){
-      applyRemote(rows[0]);
+    const row=await rpcPull(syncCfg.householdId);
+    if(row&&(!syncCfg.lastSyncedAt||new Date(row.updated_at)>new Date(syncCfg.lastSyncedAt))){
+      applyRemote(row);
     }
     setSyncStatus('🟢','ok','同期中 (最終: '+new Date().toLocaleTimeString('ja-JP')+')');
   }catch(e){console.error(e);setSyncStatus('🔴','danger','同期エラーです。通信復帰後に再試行します。');}
@@ -2043,24 +2053,16 @@ async function pushNow(){
   syncBusy=true;
   try{
     await pull0();                                    // pull-before-push (新しいremoteを先に取り込む)
-    const now=new Date().toISOString();
-    const res=await fetch(`${SYNC_URL}/rest/v1/households?on_conflict=id`,{
-      method:'POST',
-      headers:{...syncHeaders(),'Prefer':'resolution=merge-duplicates'},
-      body:JSON.stringify({id:syncCfg.householdId,data:stripForSync(state),updated_at:now})
-    });
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    syncCfg.lastSyncedAt=now;saveSyncCfg();
+    const ts=await rpcPush(syncCfg.householdId,stripForSync(state));
+    syncCfg.lastSyncedAt=ts;saveSyncCfg();
     setSyncStatus('🟢','ok','同期中 (最終: '+new Date().toLocaleTimeString('ja-JP')+')');
   }catch(e){console.error(e);setSyncStatus('🔴','danger','送信エラーです。次回の変更時に再試行します。');}
   finally{syncBusy=false;}
 }
 async function pull0(){  // pushNow内部用: syncBusyガードを通らないpull
-  const res=await fetch(`${SYNC_URL}/rest/v1/households?id=eq.${encodeURIComponent(syncCfg.householdId)}&select=data,updated_at`,{headers:syncHeaders()});
-  if(!res.ok)return;
-  const rows=await res.json();
-  if(rows.length&&syncCfg.lastSyncedAt&&new Date(rows[0].updated_at)>new Date(syncCfg.lastSyncedAt)){
-    applyRemote(rows[0]);
+  let row=null;try{row=await rpcPull(syncCfg.householdId);}catch(e){return;}
+  if(row&&syncCfg.lastSyncedAt&&new Date(row.updated_at)>new Date(syncCfg.lastSyncedAt)){
+    applyRemote(row);
   }
 }
 function schedulePush(){
