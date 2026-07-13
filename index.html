@@ -338,6 +338,19 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <button class="btn small ghost" onclick="checkedToStock()">📥 購入済みを在庫へ</button>
     <button class="btn small danger" onclick="clearChecked()">🧹 購入済みを削除</button>
   </div>
+  <h2>📰 チラシから特売を取り込む</h2>
+  <div class="card">
+    <div id="dealsDropZone" onclick="document.getElementById('dealsFileInput').click()" style="border:2.5px dashed var(--green);border-radius:var(--radius);background:var(--green-soft);padding:22px 14px;text-align:center;color:var(--green);font-weight:800;font-size:14px;cursor:pointer">
+      📷 タップしてチラシの画像を選択
+    </div>
+    <input type="file" id="dealsFileInput" accept="image/*,.heic" style="display:none">
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 画像は保存されません。読み取った特売食材だけを確認してから取り込みます(設定タブでGemini APIキー登録が必要)。</p>
+  </div>
+  <h2>🏷 特売中の食材 <span class="count" id="dealsCount"></span></h2>
+  <div class="btn-row" id="dealsExpiredRow" style="display:none">
+    <button class="btn small danger" onclick="clearExpiredDeals()">🧹 期限切れを削除</button>
+  </div>
+  <div id="dealsBox" class="card"></div>
   <h2>🏪 近くのスーパー・特売メモ</h2>
   <div id="storeList"></div>
   <button class="btn small sub" onclick="openStoreModal()">＋ 店舗を追加</button>
@@ -356,6 +369,15 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
   <p style="font-size:11.5px;color:var(--sub);margin:4px 2px">※ 各レシートの「🔍 読み取り」でGemini APIによる自動抽出ができます(設定タブでAPIキー登録が必要)。読み取り後は確認モーダルでチェックしてから在庫に追加してください。</p>
   <div class="receipt-grid" id="receiptGrid"></div>
+  <h2>📊 集計</h2>
+  <div class="card">
+    <div class="field" style="margin-bottom:10px">
+      <label>集計する月</label>
+      <select id="receiptStatsMonth" onchange="renderReceiptStats()"></select>
+    </div>
+    <div id="receiptStatsBox"></div>
+    <p style="font-size:11px;color:var(--sub);margin-top:8px">※「🔍 読み取り」→「在庫に追加」を実行したレシートのみ集計対象です。読み取り前・旧形式のレシートは対象外です。</p>
+  </div>
 </section>
 
 <!-- ===== 設定 ===== -->
@@ -503,6 +525,16 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
 </div>
 
+<!-- チラシOCR確認モーダル -->
+<div class="modal-bg" id="dealsModal">
+  <div class="modal">
+    <h3>チラシの読み取り結果を確認</h3>
+    <div id="dealsItemsBox"></div>
+    <div class="btn-row"><button class="btn wide" id="dealsAddBtn" onclick="addDealsToState()">取り込む</button></div>
+    <button class="btn ghost wide" onclick="closeModal('dealsModal')">閉じる</button>
+  </div>
+</div>
+
 <!-- 使い方チュートリアルモーダル -->
 <div class="modal-bg" id="tutorialModal">
   <div class="modal">
@@ -584,7 +616,7 @@ const SEED_RECIPES=[
   favorite:false,freqDays:14,rating:0,memo:'',lastCooked:null,seed:true}));
 
 function defaultState(){return{
-  inventory:[],recipes:SEED_RECIPES,shopping:[],receipts:[],
+  inventory:[],recipes:SEED_RECIPES,shopping:[],receipts:[],deals:[],
   settings:{shoppingDays:[],shoppingLog:[],stores:[],normDict:{}},
   current:null, plan:null, history:[], ui:{locFilter:'all',favOnly:false}
 };}
@@ -609,6 +641,7 @@ function migrate(st){
     });
   }
   if(!Array.isArray(st.history))st.history=[];                  // v1.6: 献立履歴カレンダー
+  if(!Array.isArray(st.deals))st.deals=[];                       // v1.8: チラシ特売
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -830,6 +863,7 @@ function renderReceipts(){
      <figcaption>${r.addedAt}</figcaption>
      <button class="ocr-btn" id="ocr-btn-${r.id}" onclick="runOcr('${r.id}')">🔍 読み取り</button>
      </figure>`).join('')||'<div class="empty" style="grid-column:1/-1">まだレシートがありません。買い物したら撮影してください。📷</div>';
+  renderReceiptStatsMonthOptions();renderReceiptStats();
 }
 function delReceipt(id){state.receipts=state.receipts.filter(r=>r.id!==id);save();renderReceipts();}
 function viewReceipt(id){
@@ -839,6 +873,55 @@ function viewReceipt(id){
   bg.innerHTML=`<img src="${r.dataUrl}" style="max-width:100%;max-height:92vh;border-radius:8px" alt="レシート拡大">`;
   bg.onclick=()=>bg.remove();
   document.body.appendChild(bg);
+}
+
+/* ============ レシート集計 ============ */
+// items(genre付き)が保存されているレシートのみ集計対象(読み取り→在庫に追加を実行したもの)。旧形式レシートは対象外
+function receiptsWithItems(){return state.receipts.filter(r=>Array.isArray(r.items)&&r.items.length);}
+function receiptStatsMonths(){
+  const set=new Set(receiptsWithItems().map(r=>r.addedAt.slice(0,7)));
+  return[...set].sort().reverse();
+}
+function renderReceiptStatsMonthOptions(){
+  const sel=document.getElementById('receiptStatsMonth');if(!sel)return;
+  const months=receiptStatsMonths();
+  const cur=sel.value;
+  sel.innerHTML=months.length?months.map(m=>`<option value="${m}">${m}</option>`).join(''):'<option value="">-</option>';
+  if(months.includes(cur))sel.value=cur;
+}
+function renderReceiptStats(){
+  const sel=document.getElementById('receiptStatsMonth');
+  const box=document.getElementById('receiptStatsBox');
+  if(!sel||!box)return;
+  const month=sel.value;
+  const list=receiptsWithItems().filter(r=>r.addedAt.slice(0,7)===month);
+  if(!month||!list.length){box.innerHTML='<div class="empty">集計できるレシートがありません。読み取り→在庫に追加を実行したレシートが対象です。</div>';return;}
+  let totalSum=0;
+  const genreSum={};
+  list.forEach(r=>{
+    const itemsSum=(r.items||[]).reduce((a,it)=>a+(it.price||0),0);
+    totalSum+=(typeof r.total==='number')?r.total:itemsSum;
+    (r.items||[]).forEach(it=>{
+      const g=it.genre||'その他';
+      genreSum[g]=(genreSum[g]||0)+(it.price||0);
+    });
+  });
+  const entries=Object.entries(genreSum).sort((a,b)=>b[1]-a[1]);
+  const max=entries.length?entries[0][1]:1;
+  box.innerHTML=`
+    <div class="row" style="margin-bottom:14px">
+      <div class="grow"><span class="name">月間総額 ¥${Math.round(totalSum).toLocaleString()}</span><div class="meta">レシート${list.length}枚</div></div>
+    </div>
+    ${entries.map(([g,sum])=>`
+      <div style="margin-bottom:9px">
+        <div class="row" style="justify-content:space-between;font-size:12.5px;font-weight:700;margin-bottom:3px">
+          <span>${esc(g)}</span><span>¥${Math.round(sum).toLocaleString()}</span>
+        </div>
+        <div style="background:var(--ghost-bg);border-radius:999px;height:10px;overflow:hidden">
+          <div style="width:${max>0?Math.max(3,sum/max*100):0}%;height:100%;background:var(--green)"></div>
+        </div>
+      </div>`).join('')}
+  `;
 }
 
 /* ============ レシートOCR (Gemini) ============ */
@@ -851,9 +934,10 @@ function saveGeminiKey(){
   }catch(e){toast('キーの保存に失敗しました。');return;}
   toast(k?'APIキーを保存しました。🔑':'APIキーを削除しました。');
 }
+const OCR_GENRES=['野菜','肉','魚','乳製品','主食','調味料','飲料','菓子','日用品','その他'];
 function ocrPrompt(){
   const today=new Date().toISOString().slice(0,10);
-  return`日本のスーパーのレシート画像から購入食材を抽出。name=一般的な食材名に正規化(例:「国産若鶏ﾓﾓ」→「鶏もも肉」)、qty=数量(不明なら1)、unit=個/g/本/袋等の推定、price=税込価格(円・不明ならnull)、expiryGuess=今日(${today})を基準にした賞味期限の推定 YYYY-MM-DD(生鮮3日/肉魚3日/乳製品7日/常温品1ヶ月目安、不明ならnull)、location=冷蔵/冷凍/常温の推定。食材以外(日用品・値引き行・小計等)は含めない。`;
+  return`日本のスーパーのレシート画像から全品目を抽出(食材だけでなく日用品なども含め、値引き行・小計・合計行は品目として含めない)。name=一般的な名称に正規化(例:「国産若鶏ﾓﾓ」→「鶏もも肉」)、qty=数量(不明なら1)、unit=個/g/本/袋等の推定、price=税込価格(円・不明ならnull)、expiryGuess=今日(${today})を基準にした賞味期限の推定 YYYY-MM-DD(生鮮3日/肉魚3日/乳製品7日/常温品1ヶ月目安、食品以外や不明ならnull)、location=冷蔵/冷凍/常温の推定、genre=${OCR_GENRES.join('/')}のいずれか1つ。total=レシート全体の合計金額(円・読み取れなければnull、品目ごとではなく1つだけ)。`;
 }
 async function runOcr(id){
   const key=loadGeminiKey();
@@ -867,7 +951,7 @@ async function runOcr(id){
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:ocrPrompt()}]}],
-        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{items:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER'},unit:{type:'STRING'},price:{type:'NUMBER',nullable:true},expiryGuess:{type:'STRING',nullable:true},location:{type:'STRING'}},required:['name','qty','unit']}}},required:['items']}}
+        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{items:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER'},unit:{type:'STRING'},price:{type:'NUMBER',nullable:true},expiryGuess:{type:'STRING',nullable:true},location:{type:'STRING'},genre:{type:'STRING'}},required:['name','qty','unit','genre']}},total:{type:'NUMBER',nullable:true}},required:['items']}}
       })
     });
     if(!res.ok){
@@ -876,12 +960,14 @@ async function runOcr(id){
       throw new Error(`通信エラーです(HTTP ${res.status})`);
     }
     const data=await res.json();
-    let items=[];
+    let items=[],total=null;
     try{
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-      items=JSON.parse(text).items||[];
-    }catch(e){items=[];}
-    openOcrModal(items);
+      const parsed=JSON.parse(text);
+      items=parsed.items||[];
+      total=(typeof parsed.total==='number')?parsed.total:null;
+    }catch(e){items=[];total=null;}
+    openOcrModal(items,total,id);
   }catch(e){
     console.error(e);
     toast(e.message||'読み取りに失敗しました。');
@@ -890,16 +976,24 @@ async function runOcr(id){
   }
 }
 let ocrItems=[];
-function openOcrModal(items){
-  ocrItems=(items||[]).filter(it=>it&&it.name).map((it,i)=>({
-    idx:i,checked:true,
-    name:normalizeName(String(it.name)),
-    qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
-    unit:it.unit?String(it.unit):'個',
-    price:(typeof it.price==='number')?it.price:null,
-    location:['冷蔵','冷凍','常温'].includes(it.location)?it.location:'冷蔵',
-    expiry:/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:null
-  }));
+let ocrTotal=null;
+let ocrReceiptId=null;
+function openOcrModal(items,total,receiptId){
+  ocrReceiptId=receiptId||null;
+  ocrTotal=(typeof total==='number')?total:null;
+  ocrItems=(items||[]).filter(it=>it&&it.name).map((it,i)=>{
+    const genre=OCR_GENRES.includes(it.genre)?it.genre:'その他';
+    return{
+      idx:i,checked:(genre!=='日用品'&&genre!=='その他'),
+      name:normalizeName(String(it.name)),
+      qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
+      unit:it.unit?String(it.unit):'個',
+      price:(typeof it.price==='number')?it.price:null,
+      location:['冷蔵','冷凍','常温'].includes(it.location)?it.location:'冷蔵',
+      expiry:/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:null,
+      genre
+    };
+  });
   renderOcrModal();
   openModal('ocrModal');
 }
@@ -927,7 +1021,10 @@ function renderOcrModal(){
         <input type="number" inputmode="decimal" min="0" step="0.1" value="${it.qty}" oninput="ocrItems[${it.idx}].qty=parseFloat(this.value)||1" placeholder="数量">
         <input type="text" value="${esc(it.unit)}" oninput="ocrItems[${it.idx}].unit=this.value" placeholder="単位">
       </div>
-      <div class="ocr-grid" style="grid-template-columns:1fr">
+      <div class="ocr-grid" style="grid-template-columns:1fr 1fr">
+        <select onchange="ocrItems[${it.idx}].genre=this.value">
+          ${OCR_GENRES.map(g=>`<option ${it.genre===g?'selected':''}>${g}</option>`).join('')}
+        </select>
         <input type="date" value="${it.expiry||''}" onchange="ocrItems[${it.idx}].expiry=this.value||null">
       </div>
     </div>`).join('');
@@ -939,15 +1036,22 @@ function updateOcrAddBtn(){
   btn.textContent=`チェックした${n}品を在庫に追加`;
 }
 function addOcrItemsToStock(){
+  if(!ocrItems.length)return;
   const checked=ocrItems.filter(it=>it.checked&&it.name.trim());
-  if(!checked.length){toast('1品以上チェックしてください。');return;}
   const today=new Date().toISOString().slice(0,10);
   checked.forEach(it=>state.inventory.push({
     id:uid(),name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',
     location:it.location,expiry:it.expiry||null,addedAt:today,memo:''
   }));
-  save();renderStock();closeModal('ocrModal');
-  toast(`${checked.length}品を在庫に追加しました。🧾`);
+  if(ocrReceiptId){
+    const r=state.receipts.find(x=>x.id===ocrReceiptId);
+    if(r){
+      r.items=ocrItems.filter(it=>it.name.trim()).map(it=>({name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',price:it.price,genre:it.genre}));
+      r.total=ocrTotal;
+    }
+  }
+  save();renderStock();renderReceipts();closeModal('ocrModal');
+  toast(checked.length?`${checked.length}品を在庫に追加しました。🧾`:'在庫には追加せず、集計用に記録しました。🧾');
 }
 
 /* ============ 献立提案 ============ */
@@ -972,7 +1076,8 @@ function toggleStockChip(ingName){
 function ingChips(r){
   return r.ings.map(g=>{
     const has=effectiveHas(g.name);
-    return`<span class="chip ${has?'ok':'danger'}" style="cursor:pointer" onclick="toggleStockChip('${esc(g.name)}')" title="タップで在庫あり/なしを切り替え">${has?'【◯':'【✗'}${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}】</span>`;
+    const deal=!has&&dealForName(g.name);
+    return`<span class="chip ${has?'ok':'danger'}" style="cursor:pointer" onclick="toggleStockChip('${esc(g.name)}')" title="タップで在庫あり/なしを切り替え">${has?'【◯':'【✗'}${esc(g.name)}${g.qty?` ${g.qty}${esc(g.unit||'')}`:''}${deal?' 特売':''}】</span>`;
   }).join('');
 }
 function expiringNames(){
@@ -980,13 +1085,16 @@ function expiringNames(){
 }
 function scoreRecipe(r,light){
   const exp=expiringNames();
-  let hit=0,expHit=0;
+  const deals=activeDeals();
+  let hit=0,expHit=0,dealHit=0;
   r.ings.forEach(g=>{
     if(inStock(g.name))hit++;
     if(exp.some(e=>e.includes(g.name)||g.name.includes(e)))expHit++;
+    const gn=normalizeName(g.name);
+    if(deals.some(d=>{const dn=normalizeName(d.name);return dn.includes(gn)||gn.includes(dn);}))dealHit++;
   });
   const coverage=r.ings.length?hit/r.ings.length:0;
-  let s=coverage*10+expHit*6;
+  let s=coverage*10+expHit*6+dealHit*3;
   if(light)s+=Math.max(0,20-(r.time||0))*0.4;    // 朝・昼は時短レシピを優先
   if(r.favorite)s+=2;
   const fd=r.freqDays||14;                       // 食べたい間隔(日)
@@ -1235,7 +1343,7 @@ function renderShopping(){
     <div class="shop-item ${i.checked?'done':''}">
       <input type="checkbox" ${i.checked?'checked':''} onchange="toggleShop('${i.id}')">
       <div class="grow">
-        <div class="name">${esc(i.name)} <span style="font-weight:500;font-size:12px;color:var(--sub)">${i.qty||''}${esc(i.unit||'')}</span></div>
+        <div class="name">${esc(i.name)} <span style="font-weight:500;font-size:12px;color:var(--sub)">${i.qty||''}${esc(i.unit||'')}</span> ${dealBadge(i.name)}</div>
         <div class="meta">${i.menu?'🍽 '+esc(i.menu):''} ${i.memo?'📝'+esc(i.memo):''}</div>
       </div>
       <button class="icon-btn" onclick="delShop('${i.id}')">🗑</button>
@@ -1291,6 +1399,141 @@ function saveStore(){
   save();renderStores();closeModal('storeModal');toast('店舗を登録しました。🏪');
 }
 function delStore(i){state.settings.stores.splice(i,1);save();renderStores();}
+
+/* ============ チラシOCR・特売 (Gemini) ============ */
+function activeDeals(){
+  const today=new Date().toISOString().slice(0,10);
+  return(state.deals||[]).filter(d=>!d.validUntil||d.validUntil>=today);
+}
+function dealForName(name){
+  const n=normalizeName(name);
+  return activeDeals().find(d=>{const dn=normalizeName(d.name);return dn.includes(n)||n.includes(dn);});
+}
+function dealBadge(name){
+  const deal=dealForName(name);
+  if(!deal)return'';
+  return`<span class="chip warn">特売${deal.price!=null?' ¥'+deal.price:''}</span>`;
+}
+function expiredDealsCount(){
+  const today=new Date().toISOString().slice(0,10);
+  return(state.deals||[]).filter(d=>d.validUntil&&d.validUntil<today).length;
+}
+function clearExpiredDeals(){
+  const n=expiredDealsCount();
+  if(!n){toast('期限切れの特売はありません。');return;}
+  if(!confirm(`期限切れの特売 ${n}件 を削除する?(在庫や買い物リストは変更されません)`))return;
+  const today=new Date().toISOString().slice(0,10);
+  state.deals=state.deals.filter(d=>!d.validUntil||d.validUntil>=today);
+  save();renderDeals();renderShopping();
+  toast('期限切れの特売を削除しました。');
+}
+function renderDeals(){
+  const box=document.getElementById('dealsBox');if(!box)return;
+  const active=activeDeals();
+  document.getElementById('dealsCount').textContent=active.length?`${active.length}件`:'';
+  const row=document.getElementById('dealsExpiredRow');
+  if(row)row.style.display=expiredDealsCount()?'':'none';
+  box.innerHTML=active.length?active.map(d=>`
+    <div class="row" style="padding:8px 0;border-bottom:1px dashed var(--line)">
+      <div class="grow">
+        <div class="name">${esc(d.name)} ${d.price!=null?`<span style="font-weight:500;font-size:13px;color:var(--sub)">¥${d.price}${d.unit?'/'+esc(d.unit):''}</span>`:''}</div>
+        <div class="meta">${d.validUntil?`〜${esc(d.validUntil)}まで`:'期限不明'}</div>
+      </div>
+    </div>`).join(''):'<div class="empty">特売中の食材はありません。チラシを取り込むと表示されます。📰</div>';
+}
+function dealsOcrPrompt(){
+  const today=new Date().toISOString().slice(0,10);
+  return`日本のスーパーのチラシ画像から特売中の食品だけを抽出してください(食品のみが対象。日用品・電化製品・チラシの見出しやキャッチコピーは含めない)。name=一般的な食材名、price=税込想定価格(円・不明ならnull)、unit=個/g/本/パック等の単位(不明ならnull)、validUntil=特売の期限を今日(${today})を基準に推定したYYYY-MM-DD(記載がなければnull)を返してください。`;
+}
+let dealItems=[];
+async function runDealsOcr(file){
+  const key=loadGeminiKey();
+  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
+  const zone=document.getElementById('dealsDropZone');
+  const orig=zone?zone.innerHTML:'';
+  if(zone)zone.innerHTML='⏳ 読み取り中…';
+  try{
+    const dataUrl=await compressImage(file);   // チラシ画像自体は保存しない(抽出結果のみ利用)
+    const base64=(dataUrl.split(',')[1])||'';
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:dealsOcrPrompt()}]}],
+        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{deals:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},price:{type:'NUMBER',nullable:true},unit:{type:'STRING',nullable:true},validUntil:{type:'STRING',nullable:true}},required:['name']}}},required:['deals']}}
+      })
+    });
+    if(!res.ok){
+      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
+      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
+      throw new Error(`通信エラーです(HTTP ${res.status})`);
+    }
+    const data=await res.json();
+    let deals=[];
+    try{
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      deals=JSON.parse(text).deals||[];
+    }catch(e){deals=[];}
+    openDealsModal(deals);
+  }catch(e){
+    console.error(e);
+    toast(e.message||'読み取りに失敗しました。');
+  }finally{
+    if(zone)zone.innerHTML=orig;
+  }
+}
+document.getElementById('dealsFileInput').addEventListener('change',e=>{
+  const f=e.target.files[0];
+  if(f)runDealsOcr(f);
+  e.target.value='';
+});
+function openDealsModal(deals){
+  dealItems=(deals||[]).filter(d=>d&&d.name).map((d,i)=>({
+    idx:i,checked:true,
+    name:normalizeName(String(d.name)),
+    price:(typeof d.price==='number')?d.price:null,
+    unit:d.unit?String(d.unit):null,
+    validUntil:/^\d{4}-\d{2}-\d{2}$/.test(d.validUntil||'')?d.validUntil:null
+  }));
+  renderDealsModal();
+  openModal('dealsModal');
+}
+function renderDealsModal(){
+  const box=document.getElementById('dealsItemsBox');
+  if(!dealItems.length){
+    box.innerHTML='<div class="empty">読み取れませんでした。チラシがはっきり写った画像で再試行してください。</div>';
+    document.getElementById('dealsAddBtn').style.display='none';
+    return;
+  }
+  document.getElementById('dealsAddBtn').style.display='';
+  box.innerHTML=dealItems.map(d=>`
+    <div class="ocr-item">
+      <div class="row">
+        <input type="checkbox" ${d.checked?'checked':''} onchange="dealItems[${d.idx}].checked=this.checked;updateDealsAddBtn()" style="width:22px;height:22px;accent-color:var(--green);flex-shrink:0">
+        <input type="text" class="grow" value="${esc(d.name)}" oninput="dealItems[${d.idx}].name=this.value" placeholder="食材名">
+      </div>
+      <div class="ocr-grid">
+        <input type="number" inputmode="decimal" min="0" step="1" value="${d.price??''}" oninput="dealItems[${d.idx}].price=this.value?(parseFloat(this.value)||null):null" placeholder="価格(円)">
+        <input type="text" value="${esc(d.unit||'')}" oninput="dealItems[${d.idx}].unit=this.value||null" placeholder="単位">
+        <input type="date" value="${d.validUntil||''}" onchange="dealItems[${d.idx}].validUntil=this.value||null">
+      </div>
+    </div>`).join('');
+  updateDealsAddBtn();
+}
+function updateDealsAddBtn(){
+  const btn=document.getElementById('dealsAddBtn');if(!btn)return;
+  const n=dealItems.filter(d=>d.checked).length;
+  btn.textContent=`チェックした${n}件を取り込む`;
+}
+function addDealsToState(){
+  const checked=dealItems.filter(d=>d.checked&&d.name.trim());
+  if(!checked.length){toast('1件以上チェックしてください。');return;}
+  const today=new Date().toISOString().slice(0,10);
+  checked.forEach(d=>state.deals.push({
+    id:uid(),name:d.name.trim(),price:d.price,unit:d.unit,validUntil:d.validUntil,addedAt:today
+  }));
+  save();renderDeals();renderShopping();closeModal('dealsModal');
+  toast(`${checked.length}件の特売を取り込みました。📰`);
+}
 
 /* ============ 設定 ============ */
 const DAYS=['日','月','火','水','木','金','土'];
@@ -1848,7 +2091,7 @@ function renderAll(){
     const on=b.dataset.loc===state.ui.locFilter;
     b.classList.toggle('on',on);b.style.background=on?'var(--green)':'';b.style.color=on?'#fff':'';
   });
-  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();renderCalendar();
+  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();renderCalendar();renderDeals();
   if(state.current)renderSuggestion();
   const gk=document.getElementById('gemini-key');if(gk)gk.value=loadGeminiKey();
 }

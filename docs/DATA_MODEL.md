@@ -6,11 +6,22 @@ interface AppState {
   recipes: Recipe[];
   shopping: ShoppingItem[];
   receipts: Receipt[];
+  deals: Deal[];               // v1.8: チラシOCRで取り込んだ特売情報
   settings: Settings;
   current: string[] | null;   // 提案中の献立 recipe.id 配列
   plan: Plan | null;
   history: HistoryEntry[];    // v1.6: 献立カレンダー用の調理履歴
   ui: { locFilter: 'all'|'冷蔵'|'冷凍'|'常温'; favOnly: boolean };
+}
+
+// v1.8: チラシOCR(Gemini)で抽出した特売食材。チラシ画像自体は保存しない(抽出結果のみ)
+interface Deal {
+  id: string;
+  name: string;
+  price: number | null;
+  unit: string | null;
+  validUntil: string | null;   // 'YYYY-MM-DD'。過ぎたものは表示・スコア加点から除外(データは残る)
+  addedAt: string;             // 'YYYY-MM-DD'
 }
 
 interface InventoryItem {
@@ -65,7 +76,12 @@ interface Receipt {
   id: string;
   dataUrl: string;       // jpeg(最大幅900px, quality 0.72)
   addedAt: string;
+  items?: { name: string; qty: number; unit: string; price: number|null; genre: string }[]; // v1.8: OCR確認モーダルで「在庫に追加」実行時に全抽出品目(チェック有無問わず)を保存。集計専用
+  total?: number | null;  // v1.8: レシート合計金額(OCRの推定値。読み取れなければnull)
 }
+// items/totalは「🔍読み取り」→確認モーダル→「在庫に追加」を実行したレシートにのみ付与される。
+// 未実行・旧形式のレシートはitemsを持たないため集計(📊)の対象外。
+// 集計(📊)は端末内のレシートのみを対象にする(レシートはstripForSyncで同期対象外のため、家族の他端末のレシートは合算できない)。
 
 interface Settings {
   shoppingDays: number[];   // 0=日..6=土
@@ -135,6 +151,7 @@ interface SyncConfig {
 | v1.5 | Settings.normDict追加(食材名の正規化辞書。migrate()で既存データに補完)。`kondate-loop-tutorial-seen`キー新設 | 2026-07-08 |
 | v1.6 | plan.days[].ids → days[].meals.{朝,昼,夜}へ拡張(旧ids配列はmigrate()で`meals.夜`に変換)。state.history(献立カレンダー用)を新設、migrate()で`[]`補完。在庫チップの手動補正(非永続) | 2026-07-08 |
 | v1.7 | 献立提案への要望入力(音声+テキスト)のGemini反映・調理モード追加。AppState自体は不変(要望・提案理由・調理モードの状態はすべて非永続のグローバル変数) | 2026-07-10 |
+| v1.8 | state.deals(チラシOCRの特売情報)新設、migrate()で`[]`補完(家族同期対象)。Receipt.items/total追加(OCR確認モーダルで「在庫に追加」実行時のみ付与、レシート自体は引き続き非同期)。レシートOCRのスキーマにgenre(食材ジャンル)を追加 | 2026-07-10 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
