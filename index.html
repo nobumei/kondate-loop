@@ -224,6 +224,13 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 .cal-grid button.cal-day.today{color:var(--green)}
 .meal-check{display:flex;align-items:center;gap:3px;font-size:12.5px;font-weight:700;color:var(--sub)}
 .meal-check input{width:18px;height:18px;accent-color:var(--green)}
+/* 献立提案フロー(マイク起点) */
+.mic-big-btn{display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;border:none;background:var(--green);color:#fff;font-size:40px;box-shadow:var(--btn-shadow);margin:6px auto 4px}
+.mic-big-btn:active{transform:scale(.94)}
+.mic-big-btn:disabled{opacity:.65}
+.day-acc-head{width:100%;background:none;border:none;display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-weight:900;color:var(--green);font-size:14px;text-align:left}
+.day-acc-head:active{opacity:.7}
+.day-acc-body{margin-top:8px}
 .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 26px);transform:translateX(-50%);background:var(--ink);color:#fff;font-size:13.5px;font-weight:700;padding:11px 20px;border-radius:999px;z-index:60;opacity:0;pointer-events:none;transition:opacity .2s;max-width:88vw;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1}
 .fab{position:fixed;right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 18px);z-index:25;width:58px;height:58px;border-radius:20px;background:var(--fab-bg,var(--green));color:var(--fab-ink,#fff);font-size:28px;border:none;box-shadow:var(--fab-shadow)}
@@ -271,45 +278,73 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 <!-- ===== 献立 ===== -->
 <section id="page-menu" class="tab-page">
   <h2>🍽 今日の献立提案</h2>
-  <div class="card" id="suggestBox">
-    <div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div>
-  </div>
-  <div class="field" style="margin-bottom:8px">
-    <label>今日の要望(任意・AIに伝えます)</label>
-    <div class="row">
-      <input id="wishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
-      <button type="button" class="icon-btn mic-btn" id="wishMicBtn" style="display:none" onclick="startDictation('wishInput',this)" aria-label="音声で要望を入力">🎤</button>
+  <div class="card" id="suggestFlowBox">
+    <!-- (a) 入力画面: マイク起点 -->
+    <div id="suggestStage-input">
+      <button type="button" class="mic-big-btn" id="suggestMicBigBtn" onclick="suggestMicTap()" aria-label="マイクで要望を話す">🎤</button>
+      <p class="meta" style="text-align:center;line-height:1.8;margin-top:10px">
+        例:「冷蔵庫のにんじんと豚肉を使いたい」「今日は中華の気分」「朝ごはん向けに軽めで」<br>
+        残っている食材や、朝・昼・夜のどれかを話しかけてください。
+      </p>
+      <div class="field" style="margin-top:16px;margin-bottom:8px">
+        <label>または、文字で入力</label>
+        <input id="wishInput" placeholder="今日は中華の気分/にんじんを使い切りたい など">
+      </div>
+      <div class="btn-row">
+        <button class="btn wide" onclick="suggestGoConfirm()">次へ ▶</button>
+      </div>
+    </div>
+    <!-- (b) 確認画面 -->
+    <div id="suggestStage-confirm" style="display:none">
+      <div class="meta" style="font-weight:800;margin-bottom:6px">この内容で提案します</div>
+      <div class="card" style="background:var(--slot-bg);margin-bottom:10px">
+        <div id="suggestConfirmText" style="font-weight:700;font-size:15px"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn wide" id="suggestBtn" onclick="suggestGenerate()">🎲 この内容で提案</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost wide" onclick="suggestShowStage('input')">◀ 話し直す・修正する</button>
+      </div>
+    </div>
+    <!-- (c) 結果画面 -->
+    <div id="suggestStage-result" style="display:none">
+      <div id="suggestBox"><div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div></div>
+      <div class="btn-row">
+        <button class="btn sub small" onclick="addMissingToShopping()">🛒 足りない食材を買い物リストへ</button>
+        <button class="btn ghost small" onclick="markCooked()">✅ この献立を作った</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost small" onclick="suggestShowStage('input')">🎤 話し直して再提案する</button>
+      </div>
     </div>
   </div>
   <div class="btn-row">
-    <button class="btn wide" id="suggestBtn" onclick="suggest()">🎲 献立を提案する</button>
+    <button class="btn small ghost" id="planToggleBtn" onclick="togglePlanSection()">📅 数日分をまとめて提案(タップで開く)</button>
   </div>
-  <div class="btn-row">
-    <button class="btn sub small" onclick="speakMenu()">🔊 献立を読み上げ</button>
-    <button class="btn sub small" onclick="addMissingToShopping()">🛒 足りない食材を買い物リストへ</button>
-    <button class="btn ghost small" onclick="markCooked()">✅ この献立を作った</button>
-  </div>
-  <h2>🍱 まとめ献立と仕込み <span class="count" id="planCount"></span></h2>
-  <div class="btn-row" style="align-items:center">
-    <label style="font-size:12.5px;font-weight:700;color:var(--sub)">何日分
-      <input type="number" id="planDays" min="1" max="7" value="3" style="width:52px;margin-left:4px;padding:6px 4px;border:1.5px solid var(--line);border-radius:8px;text-align:center">
-    </label>
-    <label class="meal-check"><input type="checkbox" id="planMealAsa">朝</label>
-    <label class="meal-check"><input type="checkbox" id="planMealHiru">昼</label>
-    <label class="meal-check"><input type="checkbox" id="planMealYoru" checked>夜</label>
-  </div>
-  <div class="field" style="margin-bottom:8px">
-    <label>まとめ提案の要望(任意・AIに伝えます)</label>
-    <div class="row">
-      <input id="planWishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
-      <button type="button" class="icon-btn mic-btn" id="planWishMicBtn" style="display:none" onclick="startDictation('planWishInput',this)" aria-label="音声で要望を入力">🎤</button>
+  <div id="planSection" style="display:none">
+    <h2>🍱 まとめ献立と仕込み <span class="count" id="planCount"></span></h2>
+    <div class="btn-row" style="align-items:center">
+      <label style="font-size:12.5px;font-weight:700;color:var(--sub)">何日分
+        <input type="number" id="planDays" min="1" max="7" value="3" style="width:52px;margin-left:4px;padding:6px 4px;border:1.5px solid var(--line);border-radius:8px;text-align:center">
+      </label>
+      <label class="meal-check"><input type="checkbox" id="planMealAsa">朝</label>
+      <label class="meal-check"><input type="checkbox" id="planMealHiru">昼</label>
+      <label class="meal-check"><input type="checkbox" id="planMealYoru" checked>夜</label>
     </div>
+    <div class="field" style="margin-bottom:8px">
+      <label>まとめ提案の要望(任意・AIに伝えます)</label>
+      <div class="row">
+        <input id="planWishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
+        <button type="button" class="icon-btn mic-btn" id="planWishMicBtn" style="display:none" onclick="startDictation('planWishInput',this)" aria-label="音声で要望を入力">🎤</button>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn small" id="planMakeBtn" onclick="makePlan()">📅 まとめて提案</button>
+      <button class="btn small sub" onclick="addPlanMissingToShopping()">🛒 まとめ買いリストへ</button>
+    </div>
+    <div id="planBox"><div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div></div>
   </div>
-  <div class="btn-row">
-    <button class="btn small" id="planMakeBtn" onclick="makePlan()">📅 まとめて提案</button>
-    <button class="btn small sub" onclick="addPlanMissingToShopping()">🛒 まとめ買いリストへ</button>
-  </div>
-  <div id="planBox"><div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div></div>
   <h2>📅 献立カレンダー</h2>
   <div class="card">
     <div class="row" style="justify-content:space-between;margin-bottom:8px">
@@ -1083,7 +1118,34 @@ function ingChips(r){
 function expiringNames(){
   return state.inventory.filter(i=>{const d=daysUntil(i.expiry);return d!==null&&d<=3;}).map(i=>i.name);
 }
-function scoreRecipe(r,light){
+// v1.9: 献立の多様性・栄養バランス用。材料名から主タンパク源を簡易推定する(厳密な栄養計算ではない)
+const PROTEIN_KEYWORDS=[
+  ['肉',['鶏','豚','牛','ひき肉','ベーコン','ハム','ソーセージ','手羽']],
+  ['魚介',['鮭','さば','サバ','あじ','アジ','いわし','イワシ','えび','エビ','いか','イカ','たこ','タコ','たら','タラ','ツナ','しらす','さんま','サンマ','ぶり','ブリ','まぐろ','マグロ','かつお','カツオ','貝','ちくわ','はんぺん','さつま揚げ','明太子']],
+  ['卵',['卵','たまご']],
+  ['大豆製品',['豆腐','納豆','厚揚げ','油揚げ','豆乳','大豆','がんも']],
+];
+function mainProteinSource(r){
+  for(const[label,kws]of PROTEIN_KEYWORDS){
+    if(r.ings.some(g=>kws.some(k=>g.name.includes(k))))return label;
+  }
+  return '野菜中心';
+}
+// 直近days日の履歴(主菜)から主タンパク源の集合を返す。連日同じタンパク源に偏るのを避けるための参照用
+function recentProteinSources(days){
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-days);
+  const cutoffStr=cutoff.toISOString().slice(0,10);
+  const sources=new Set();
+  state.history.filter(h=>h.date>=cutoffStr).forEach(h=>{
+    (h.ids||[]).forEach(id=>{
+      const rr=state.recipes.find(x=>x.id===id);
+      if(rr&&rr.cat==='主菜')sources.add(mainProteinSource(rr));
+    });
+  });
+  return sources;
+}
+// picked: 同じ提案(同日・同プラン内)ですでに選ばれたレシピの配列。渡すと重複しにくいよう減点する(v1.9)
+function scoreRecipe(r,light,picked){
   const exp=expiringNames();
   const deals=activeDeals();
   let hit=0,expHit=0,dealHit=0;
@@ -1105,13 +1167,21 @@ function scoreRecipe(r,light){
     else s+=Math.min(4,(ratio-1)*2+1);           // 食べごろ〜食べ逃し→加点
   }else s+=1;                                    // 未調理は少し優遇
   if(r.rating>=4)s+=1.5;
+  if(picked&&picked.length){                     // v1.9: 同一提案内の繰り返しペナルティ(控えめな重み)
+    const myProtein=mainProteinSource(r);
+    picked.forEach(p=>{
+      if(p.id===r.id)s-=20;                       // 同一レシピの重複は強く回避
+      else if(mainProteinSource(p)===myProtein&&myProtein!=='野菜中心')s-=3;  // 主タンパク源の被り
+    });
+  }
+  if(r.cat==='主菜'&&recentProteinSources(2).has(mainProteinSource(r)))s-=2.5; // 直近2日と同じ主タンパク源
   s+=Math.random()*2;                            // 再提案で揺らぎ
   return s;
 }
-function pickBest(cat){
+function pickBest(cat,picked){
   const pool=state.recipes.filter(r=>r.cat===cat);
   if(!pool.length)return null;
-  return pool.map(r=>({r,s:scoreRecipe(r)})).sort((a,b)=>b.s-a.s)[0].r;
+  return pool.map(r=>({r,s:scoreRecipe(r,false,picked)})).sort((a,b)=>b.s-a.s)[0].r;
 }
 function missingIngs(r){return r.ings.filter(g=>!effectiveHas(g.name));}
 function searchLinks(r){
@@ -1150,6 +1220,7 @@ function buildMenuPrompt(wish,frame){
     `登録レシピ一覧(JSON、idはこの中からのみ選ぶこと): ${JSON.stringify(recipes)}`,
     frameText,
     '在庫にある食材や期限が近い食材を活用しつつ、ユーザーの要望を最優先して選んでください。',
+    '主菜の主タンパク源(肉/魚/卵/大豆など)やジャンル・調理法は日替わりで変え、緑黄色野菜を毎日の献立に入れ、同じ食材の連続使用を避けて栄養バランスと変化を持たせてください。',
     '必ずレシピ一覧に実在するidだけを使い、存在しないidや架空のidは絶対に使わないでください。'
   ].join('\n');
 }
@@ -1176,7 +1247,8 @@ async function callGeminiForMenu(wish,frame){
 }
 // AIが返したid配列からcats(カテゴリ)ごとに1件ずつ組み立てる。不正id(存在しない/カテゴリ重複)は無視し、
 // 不足分はpickBestExcl()で従来ロジックが補う。usedは呼び出し元と共有するSet(既出idの重複防止)
-function comboFromIdsForCats(ids,cats,used,light){
+// picked(v1.9): 同一提案内・同一プランの他日ですでに選ばれたレシピ配列。渡すと多様性ペナルティに使われる
+function comboFromIdsForCats(ids,cats,used,light,picked){
   const byCat={};
   ids.forEach(id=>{
     if(used.has(id))return;
@@ -1186,7 +1258,7 @@ function comboFromIdsForCats(ids,cats,used,light){
   });
   cats.forEach(cat=>{
     if(!byCat[cat]){
-      const r=pickBestExcl(cat,used,light);
+      const r=pickBestExcl(cat,used,light,[...(picked||[]),...Object.values(byCat)]);
       if(r){byCat[cat]=r;used.add(r.id);}
     }
   });
@@ -1220,12 +1292,36 @@ async function suggest(){
       if(btn){btn.disabled=false;btn.textContent=orig;}
     }
   }
-  const combo=['主菜','副菜','汁物'].map(pickBest).filter(Boolean);
+  const combo=[];                                 // v1.9: 主菜→副菜→汁物の順に選び、後続は先に選んだ分を減点材料にする(多様性)
+  ['主菜','副菜','汁物'].forEach(cat=>{
+    const r=pickBest(cat,combo);
+    if(r)combo.push(r);
+  });
   if(!combo.length){document.getElementById('suggestBox').innerHTML='<div class="empty">レシピが登録されていません。「＋ レシピを追加」から登録してください。</div>';return;}
   state.current=combo.map(r=>r.id);save();
   renderSuggestion();
 }
 function currentRecipes(){return(state.current||[]).map(id=>state.recipes.find(r=>r.id===id)).filter(Boolean);}
+/* ============ 単発提案フロー(マイク起点・3段階) ============ */
+function suggestShowStage(stage){
+  ['input','confirm','result'].forEach(s=>{
+    const el=document.getElementById('suggestStage-'+s);
+    if(el)el.style.display=(s===stage)?'':'none';
+  });
+}
+function suggestGoConfirm(){
+  const wish=(document.getElementById('wishInput')?.value||'').trim();
+  const box=document.getElementById('suggestConfirmText');
+  if(box)box.textContent=wish||'(要望なし・おまかせで提案します)';
+  suggestShowStage('confirm');
+}
+function suggestMicTap(){
+  startDictation('wishInput',document.getElementById('suggestMicBigBtn'),()=>suggestGoConfirm());
+}
+async function suggestGenerate(){
+  await suggest();
+  suggestShowStage('result');
+}
 function renderSuggestion(){
   const combo=currentRecipes();
   if(!combo.length)return;
@@ -1583,14 +1679,6 @@ function speak(text){
   u.lang='ja-JP';u.rate=1.0;
   speechSynthesis.speak(u);
 }
-function speakMenu(){
-  const combo=currentRecipes();
-  if(!combo.length){toast('先に献立を提案してください。');return;}
-  const miss=combo.flatMap(missingIngs).map(m=>m.name);
-  let t='今日の献立は、'+combo.map(r=>`${r.cat}が${r.name}`).join('、')+'です。';
-  t+=miss.length?`足りない食材は、${miss.join('、')}です。`:'すべて在庫でまかなえます。';
-  speak(t);
-}
 function speakShopping(){
   const items=state.shopping.filter(i=>!i.checked);
   if(!items.length){toast('リストが空です。');return;}
@@ -1604,8 +1692,9 @@ function initMicButtons(){
   if(!SR_CLASS)return;   // 非対応ブラウザは初期状態(非表示)のまま
   document.querySelectorAll('.mic-btn').forEach(b=>b.style.display='inline-flex');
 }
-function startDictation(inputId,btnEl){
-  if(!SR_CLASS){toast('このブラウザは音声入力に対応していません。');return;}
+// onDone(v1.9): 音声認識に成功しテキスト欄へ反映した直後に呼ばれる任意コールバック(単発提案フローの自動遷移用)
+function startDictation(inputId,btnEl,onDone){
+  if(!SR_CLASS){toast('このブラウザは音声入力に対応していません。下のテキスト欄に入力してください。');const input=document.getElementById(inputId);if(input)input.focus();return;}
   const rec=new SR_CLASS();
   rec.lang='ja-JP';rec.interimResults=false;rec.maxAlternatives=1;
   const orig=btnEl.textContent;
@@ -1613,7 +1702,7 @@ function startDictation(inputId,btnEl){
   rec.onresult=e=>{
     const text=e.results[0]&&e.results[0][0]&&e.results[0][0].transcript||'';
     const input=document.getElementById(inputId);
-    if(input&&text)input.value=text;
+    if(input&&text){input.value=text;if(typeof onDone==='function')onDone(text);}
   };
   rec.onerror=()=>{toast('音声認識に失敗しました。');};
   rec.onend=()=>{btnEl.disabled=false;btnEl.textContent=orig;};
@@ -1752,11 +1841,11 @@ function daysUntilNextShopping(){
   return Math.max(1,Math.min(7,min));
 }
 const MEAL_ORDER=['朝','昼','夜'];
-function pickBestExcl(cat,used,light){
+function pickBestExcl(cat,used,light,picked){
   let pool=state.recipes.filter(r=>r.cat===cat&&!used.has(r.id));
   if(!pool.length)pool=state.recipes.filter(r=>r.cat===cat);
   if(!pool.length)return null;
-  return pool.map(r=>({r,s:scoreRecipe(r,light)})).sort((a,b)=>b.s-a.s)[0].r;
+  return pool.map(r=>({r,s:scoreRecipe(r,light,picked)})).sort((a,b)=>b.s-a.s)[0].r;
 }
 function selectedPlanMeals(){
   return MEAL_ORDER.filter(m=>{
@@ -1778,22 +1867,26 @@ async function makePlan(){
     try{
       const aiRes=await callGeminiForMenu(wish,{days:n,meals});
       const used=new Set();
+      const allPicked=[];  // v1.9: 他日ですでに選んだレシピ(多様性ペナルティ用)
       const days=[];
       for(let off=0;off<n;off++){
         const aiDay=(aiRes.days||[]).find(d=>d.offset===off);
         const dayMeals={};
+        const dayPicked=[];
         meals.forEach(meal=>{
           const light=(meal==='朝'||meal==='昼');
           const idsRaw=(aiDay&&aiDay.meals&&aiDay.meals[meal])||[];
           const validIds=idsRaw.filter(id=>state.recipes.some(r=>r.id===id));
           const cats=light?['汁物','主菜']:['主菜','副菜','汁物'];
-          const combo=comboFromIdsForCats(validIds,cats,used,light);
-          if(combo.length)dayMeals[meal]=combo.map(r=>r.id);
+          const combo=comboFromIdsForCats(validIds,cats,used,light,[...allPicked,...dayPicked]);
+          if(combo.length){dayMeals[meal]=combo.map(r=>r.id);dayPicked.push(...combo);}
         });
+        allPicked.push(...dayPicked);
         days.push({offset:off,meals:dayMeals});
       }
       state.plan={createdAt:new Date().toISOString().slice(0,10),days,prepDone:{}};
       planReason=aiRes.reason||null;
+      planOpenDays=new Set([0]);
       save();renderPlan();
       toast(`${n}日分・${meals.join('/')}の献立を作成しました。📅 仕込みの目安は30分です。`);
       return;
@@ -1805,18 +1898,26 @@ async function makePlan(){
     }
   }
   const used=new Set();
+  const allPicked=[];    // v1.9: 他日ですでに選んだレシピ(多様性ペナルティ用)
   const days=[];
   for(let off=0;off<n;off++){
     const dayMeals={};
+    const dayPicked=[];
     meals.forEach(meal=>{
       const light=(meal==='朝'||meal==='昼');
       const cats=light?['汁物','主菜']:['主菜','副菜','汁物'];
-      const ids=cats.map(c=>pickBestExcl(c,used,light)).filter(Boolean).map(r=>{used.add(r.id);return r.id;});
+      const ids=[];
+      cats.forEach(c=>{
+        const r=pickBestExcl(c,used,light,[...allPicked,...dayPicked]);
+        if(r){used.add(r.id);dayPicked.push(r);ids.push(r.id);}
+      });
       if(ids.length)dayMeals[meal]=ids;
     });
+    allPicked.push(...dayPicked);
     days.push({offset:off,meals:dayMeals});
   }
   state.plan={createdAt:new Date().toISOString().slice(0,10),days,prepDone:{}};
+  planOpenDays=new Set([0]);
   save();renderPlan();
   toast(`${n}日分・${meals.join('/')}の献立を作成しました。📅 仕込みの目安は30分です。`);
 }
@@ -1871,6 +1972,11 @@ function togglePrep(name){
   state.plan.prepDone[name]=!state.plan.prepDone[name];
   save();renderPlan();
 }
+let planOpenDays=new Set([0]);   // v1.9: 日別アコーディオンの開閉状態。セッション内のみ・state非保存(既定は当日=offset0のみ開く)
+function togglePlanDay(offset){
+  if(planOpenDays.has(offset))planOpenDays.delete(offset);else planOpenDays.add(offset);
+  renderPlan();
+}
 function renderPlan(){
   const box=document.getElementById('planBox');if(!box)return;
   if(!state.plan){box.innerHTML='<div class="empty">日数と朝・昼・夜を選んで「まとめて提案」を押すと、献立と仕込みリストを作成します(パルシステム方式)。🍱</div>';document.getElementById('planCount').textContent='';return;}
@@ -1878,20 +1984,8 @@ function renderPlan(){
   const doneN=tasks.filter(t=>state.plan.prepDone[t.name]).length;
   document.getElementById('planCount').textContent=`${state.plan.days.length}日分・${state.plan.createdAt}作成`;
   const reasonHtml=planReason?`<div class="meta" style="color:var(--green);font-weight:700;margin-bottom:8px">💡 AIの提案理由: ${esc(planReason)}</div>`:'';
-  box.innerHTML=reasonHtml+state.plan.days.map(day=>`
-    <div class="card">
-      <div class="meta" style="font-weight:900;color:var(--green)">${dayLabel(day.offset)}</div>
-      ${MEAL_ORDER.filter(m=>day.meals&&day.meals[m]&&day.meals[m].length).map(m=>`
-        <div style="margin-top:6px">
-          <div class="meta" style="font-weight:800">${m}</div>
-          ${day.meals[m].map(id=>{const r=state.recipes.find(x=>x.id===id);if(!r)return'';
-            return`<div style="padding:3px 0 6px">
-              <div style="cursor:pointer" onclick="viewRecipe('${r.id}')"><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b> <span style="font-size:11px;color:var(--sub)">▸作り方</span></div>
-              <div class="ing-list" style="margin-top:4px">${ingChips(r)}</div>
-            </div>`;}).join('')}
-        </div>`).join('')}
-    </div>`).join('')+
-  `<div class="card">
+  // v1.9: 仕込みリストを上部に表示し、日ごとの献立は既定で当日(offset0)だけ開くアコーディオンにする(画面が縦に伸びすぎないように)
+  const prepHtml=`<div class="card">
     <div class="meta" style="font-weight:900;color:var(--green);margin-bottom:6px">🔪 事前準備リスト (${doneN}/${tasks.length})</div>
     ${tasks.length?tasks.map(t=>`
       <div class="shop-item ${state.plan.prepDone[t.name]?'done':''}">
@@ -1904,6 +1998,25 @@ function renderPlan(){
       </div>`).join(''):'<div class="empty">下処理が必要な食材はありません。</div>'}
     <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ もやし・きゅうり・豆腐系は日持ちしないため、当日の調理を推奨します。</p>
   </div>`;
+  const daysHtml=state.plan.days.map(day=>{
+    const open=planOpenDays.has(day.offset);
+    const mealsHtml=MEAL_ORDER.filter(m=>day.meals&&day.meals[m]&&day.meals[m].length).map(m=>`
+        <div style="margin-top:6px">
+          <div class="meta" style="font-weight:800">${m}</div>
+          ${day.meals[m].map(id=>{const r=state.recipes.find(x=>x.id===id);if(!r)return'';
+            return`<div style="padding:3px 0 6px">
+              <div style="cursor:pointer" onclick="viewRecipe('${r.id}')"><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b> <span style="font-size:11px;color:var(--sub)">▸作り方</span></div>
+              <div class="ing-list" style="margin-top:4px">${ingChips(r)}</div>
+            </div>`;}).join('')}
+        </div>`).join('');
+    return`<div class="card">
+      <button type="button" class="day-acc-head" onclick="togglePlanDay(${day.offset})" aria-expanded="${open}">
+        <span>${esc(dayLabel(day.offset))}</span><span>${open?'▲':'▼'}</span>
+      </button>
+      ${open?`<div class="day-acc-body">${mealsHtml||'<div class="meta">この日の献立はありません。</div>'}</div>`:''}
+    </div>`;
+  }).join('');
+  box.innerHTML=reasonHtml+prepHtml+daysHtml;
 }
 function addPlanMissingToShopping(){
   if(!state.plan){toast('先に「まとめて提案」を押してください。');return;}
@@ -2087,6 +2200,16 @@ function renderSyncUI(){
 }
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pull();});
 
+/* ============ まとめて提案の開閉(v1.9・既定は非表示) ============ */
+function togglePlanSection(force){
+  const el=document.getElementById('planSection');
+  const btn=document.getElementById('planToggleBtn');
+  if(!el)return;
+  const open=typeof force==='boolean'?force:(el.style.display==='none');
+  el.style.display=open?'':'none';
+  if(btn)btn.textContent=open?'📅 数日分をまとめて提案(タップで閉じる)':'📅 数日分をまとめて提案(タップで開く)';
+}
+
 /* ============ init ============ */
 function renderAll(){
   document.querySelectorAll('#locFilter .btn').forEach(b=>{
@@ -2095,6 +2218,8 @@ function renderAll(){
   });
   renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();renderCalendar();renderDeals();
   if(state.current)renderSuggestion();
+  suggestShowStage(state.current&&state.current.length?'result':'input');
+  togglePlanSection(!!state.plan);   // 既に作成済みのまとめ献立があれば開いた状態で表示する
   const gk=document.getElementById('gemini-key');if(gk)gk.value=loadGeminiKey();
 }
 function initPlanUI(){
