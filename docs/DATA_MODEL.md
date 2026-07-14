@@ -49,6 +49,7 @@ interface Recipe {
   lastCooked: string | null; // 'YYYY-MM-DD'
   seed: boolean;         // trueなら削除ボタン非表示
 }
+// v1.11: レシピOCR(Gemini)で本・Kindle・雑誌等の画像から抽出したレシピもseed:falseの通常レシピとしてstate.recipesに追加される(スキーマ変更なし)。家族同期対象・削除ボタンあり。抽出結果は確認モーダルでの編集を経てからのみ追加され、画像自体は保存しない
 
 // v1.2: まとめ献立と仕込み(v1.6でdays構造を拡張)
 interface Plan {
@@ -153,6 +154,7 @@ interface SyncConfig {
 | v1.7 | 献立提案への要望入力(音声+テキスト)のGemini反映・調理モード追加。AppState自体は不変(要望・提案理由・調理モードの状態はすべて非永続のグローバル変数) | 2026-07-10 |
 | v1.8 | state.deals(チラシOCRの特売情報)新設、migrate()で`[]`補完(家族同期対象)。Receipt.items/total追加(OCR確認モーダルで「在庫に追加」実行時のみ付与、レシート自体は引き続き非同期)。レシートOCRのスキーマにgenre(食材ジャンル)を追加 | 2026-07-10 |
 | v1.10 | AppStateスキーマ変更なし。UI改修: チュートリアルを3枚スライド化+モバイルでの「はじめる」押下不可を修正、設定タブを下部ナビから廃止しヘッダー☰メニューへ集約(下部ナビ4タブ化)、設定タブの「買い物記録」UI削除(`settings.shoppingLog`フィールドは後方互換のため存置・非推奨)、調理モードの読み上げに材料の分量(大さじ/小さじ/g/個)を追加 | 2026-07-13 |
+| v1.11 | AppStateスキーマ変更なし。レシピOCR(Gemini)を追加: 本・Kindle・雑誌・手書きの画像から複数レシピ(名前/カテゴリ/調理時間/材料/作り方)を抽出→確認・編集モーダルでチェックした分だけseed:falseのRecipeとしてstate.recipesに追加(画像自体は保存しない)。searchLinks()をGoogle検索経由からクラシル/DELISH KITCHENのサイト内検索への直リンクに変更 | 2026-07-14 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。

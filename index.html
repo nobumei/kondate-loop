@@ -369,8 +369,11 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <h2>📖 レシピ一覧 <span class="count" id="recipeCount"></span></h2>
   <div class="btn-row">
     <button class="btn small sub" onclick="openRecipeModal()">＋ レシピを追加</button>
+    <button class="btn small sub" id="recipeOcrBtn" onclick="document.getElementById('recipeOcrFileInput').click()">📷 本・画面からレシピを取り込む</button>
     <button class="btn small ghost" onclick="state.ui.favOnly=!state.ui.favOnly;renderRecipes()" id="favFilterBtn">⭐ お気に入りのみ</button>
   </div>
+  <input type="file" id="recipeOcrFileInput" accept="image/*,.heic" style="display:none">
+  <p style="font-size:11.5px;color:var(--sub);margin:0 2px 4px">※ 画像は保存されません。読み取った内容を確認・編集してから追加します(設定タブでGemini APIキー登録が必要)。</p>
   <div id="recipeList"></div>
 </section>
 
@@ -570,6 +573,16 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <div id="dealsItemsBox"></div>
     <div class="btn-row"><button class="btn wide" id="dealsAddBtn" onclick="addDealsToState()">取り込む</button></div>
     <button class="btn ghost wide" onclick="closeModal('dealsModal')">閉じる</button>
+  </div>
+</div>
+
+<!-- レシピOCR確認モーダル -->
+<div class="modal-bg" id="recipeOcrModal">
+  <div class="modal">
+    <h3>読み取ったレシピを確認</h3>
+    <div id="recipeOcrItemsBox"></div>
+    <div class="btn-row"><button class="btn wide" id="recipeOcrAddBtn" onclick="addRecipeOcrItemsToState()">レシピに追加</button></div>
+    <button class="btn ghost wide" onclick="closeModal('recipeOcrModal')">閉じる</button>
   </div>
 </div>
 
@@ -1247,9 +1260,8 @@ function pickBest(cat,picked){
 }
 function missingIngs(r){return r.ings.filter(g=>!effectiveHas(g.name));}
 function searchLinks(r){
-  const ings=r.ings.slice(0,2).map(g=>g.name).join(' ');
-  const kurashiru='https://www.google.com/search?q='+encodeURIComponent(`${r.name} ${ings} レシピ クラシル`);
-  const delish='https://www.google.com/search?q='+encodeURIComponent(`${r.name} ${ings} レシピ DELISH KITCHEN`);
+  const kurashiru='https://www.kurashiru.com/search?query='+encodeURIComponent(r.name);
+  const delish='https://delishkitchen.tv/search?q='+encodeURIComponent(r.name);
   return`<span class="links"><a href="${kurashiru}" target="_blank" rel="noopener">🔍 クラシル</a><a href="${delish}" target="_blank" rel="noopener">🔍 DELISH KITCHEN</a></span>`;
 }
 // 要望入力(音声/テキスト)をGeminiに渡して献立候補を取得する。要望が空の時は一切呼ばれない
@@ -1491,6 +1503,134 @@ function delRecipe(id){
   const r=state.recipes.find(x=>x.id===id);
   if(!confirm(`「${r.name}」を削除する?`))return;
   state.recipes=state.recipes.filter(x=>x.id!==id);save();renderRecipes();
+}
+
+/* ============ レシピOCR (Gemini) ============ */
+// 料理本・Kindle・雑誌・手書きメモの撮影/スクショから複数レシピを抽出する。画像自体は保存せず抽出結果のみ利用(チラシOCRと同じ方針)
+const RECIPE_OCR_CATS=['主菜','副菜','汁物'];
+function recipeOcrPrompt(){
+  return`料理本・レシピ画像から料理を抽出してください。name=料理名、cat=${RECIPE_OCR_CATS.join('/')}のいずれかで推定、time=調理時間(分・不明なら20)、ings=材料(name/qty/unitの組。分量は必ず大さじ・小さじ・g・個などの定量表記に正規化すること。「少々」「適量」はunitとしてそのまま許容し、「1かけ」のような曖昧な分量表現は大さじ/小さじ/gのいずれかに変換すること)、steps=作り方を手順ごとの短い文の配列。画像内に複数のレシピが写っている場合はすべてrecipes配列に含めてください。`;
+}
+let recipeOcrItems=[];
+async function runRecipeOcr(file){
+  const key=loadGeminiKey();
+  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
+  const btn=document.getElementById('recipeOcrBtn');
+  const orig=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='⏳読み取り中…';}
+  try{
+    const dataUrl=await compressImage(file);   // 画像は保存せず抽出のみに利用
+    const base64=(dataUrl.split(',')[1])||'';
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:recipeOcrPrompt()}]}],
+        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{recipes:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},cat:{type:'STRING'},time:{type:'NUMBER'},ings:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER',nullable:true},unit:{type:'STRING'}},required:['name','unit']}},steps:{type:'ARRAY',items:{type:'STRING'}}},required:['name','ings','steps']}}},required:['recipes']}}
+      })
+    });
+    if(!res.ok){
+      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
+      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
+      throw new Error(`通信エラーです(HTTP ${res.status})`);
+    }
+    const data=await res.json();
+    let recipes=[];
+    try{
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      recipes=JSON.parse(text).recipes||[];
+    }catch(e){recipes=[];}
+    openRecipeOcrModal(recipes);
+  }catch(e){
+    console.error(e);
+    toast(e.message||'読み取りに失敗しました。');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=orig;}
+  }
+}
+document.getElementById('recipeOcrFileInput').addEventListener('change',e=>{
+  const f=e.target.files[0];
+  if(f)runRecipeOcr(f);
+  e.target.value='';
+});
+function openRecipeOcrModal(recipes){
+  const raw=recipes||[];
+  recipeOcrItems=raw.filter(rc=>rc&&rc.name&&Array.isArray(rc.ings)&&rc.ings.some(g=>g&&g.name)).map((rc,i)=>({
+    idx:i,checked:true,
+    name:String(rc.name),
+    cat:RECIPE_OCR_CATS.includes(rc.cat)?rc.cat:'主菜',
+    time:(typeof rc.time==='number'&&rc.time>0)?rc.time:20,
+    ings:(rc.ings||[]).filter(g=>g&&g.name).map(g=>({name:normalizeName(String(g.name)),qty:(typeof g.qty==='number')?g.qty:null,unit:g.unit?String(g.unit):''})),
+    steps:(rc.steps||[]).filter(s=>typeof s==='string'&&s.trim()).map(s=>s.trim())
+  }));
+  renderRecipeOcrModal();
+  openModal('recipeOcrModal');
+  if(raw.length&&recipeOcrItems.length<raw.length)toast(`材料が読み取れなかった${raw.length-recipeOcrItems.length}件はスキップしました。`);
+}
+function renderRecipeOcrModal(){
+  const box=document.getElementById('recipeOcrItemsBox');
+  if(!recipeOcrItems.length){
+    box.innerHTML='<div class="empty">読み取れませんでした。画像がはっきり写った状態で再試行するか、「＋ レシピを追加」から手動で登録してください。</div>';
+    document.getElementById('recipeOcrAddBtn').style.display='none';
+    return;
+  }
+  document.getElementById('recipeOcrAddBtn').style.display='';
+  box.innerHTML=recipeOcrItems.map(rc=>`
+    <div class="ocr-item">
+      <div class="row">
+        <input type="checkbox" ${rc.checked?'checked':''} onchange="recipeOcrItems[${rc.idx}].checked=this.checked;updateRecipeOcrAddBtn()" style="width:22px;height:22px;accent-color:var(--green);flex-shrink:0">
+        <input type="text" class="grow" value="${esc(rc.name)}" oninput="recipeOcrItems[${rc.idx}].name=this.value" placeholder="料理名">
+      </div>
+      <div class="ocr-grid" style="grid-template-columns:1fr 1fr">
+        <select onchange="recipeOcrItems[${rc.idx}].cat=this.value">
+          ${RECIPE_OCR_CATS.map(c=>`<option ${rc.cat===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <input type="number" inputmode="numeric" min="1" value="${rc.time}" oninput="recipeOcrItems[${rc.idx}].time=parseInt(this.value)||20" placeholder="調理時間(分)">
+      </div>
+      <div class="meta" style="margin:8px 0 4px">材料</div>
+      ${rc.ings.map((g,gi)=>`
+        <div class="row" style="gap:4px;margin-bottom:4px">
+          <input type="text" class="grow" value="${esc(g.name)}" oninput="recipeOcrItems[${rc.idx}].ings[${gi}].name=this.value" placeholder="食材名">
+          <input type="number" inputmode="decimal" step="0.1" style="width:64px" value="${g.qty??''}" oninput="recipeOcrItems[${rc.idx}].ings[${gi}].qty=this.value?(parseFloat(this.value)||null):null" placeholder="量">
+          <input type="text" style="width:64px" value="${esc(g.unit)}" oninput="recipeOcrItems[${rc.idx}].ings[${gi}].unit=this.value" placeholder="単位">
+          <button class="icon-btn" onclick="delRecipeOcrIng(${rc.idx},${gi})">🗑</button>
+        </div>`).join('')}
+      <button class="btn small ghost" onclick="addRecipeOcrIng(${rc.idx})">＋材料を追加</button>
+      <div class="meta" style="margin:10px 0 4px">作り方</div>
+      ${rc.steps.map((st,si)=>`
+        <div class="row" style="gap:4px;margin-bottom:4px">
+          <input type="text" class="grow" value="${esc(st)}" oninput="recipeOcrItems[${rc.idx}].steps[${si}]=this.value" placeholder="手順">
+          <button class="icon-btn" onclick="delRecipeOcrStep(${rc.idx},${si})">🗑</button>
+        </div>`).join('')}
+      <button class="btn small ghost" onclick="addRecipeOcrStep(${rc.idx})">＋手順を追加</button>
+    </div>`).join('');
+  updateRecipeOcrAddBtn();
+}
+function addRecipeOcrIng(ri){recipeOcrItems[ri].ings.push({name:'',qty:null,unit:''});renderRecipeOcrModal();}
+function delRecipeOcrIng(ri,gi){recipeOcrItems[ri].ings.splice(gi,1);renderRecipeOcrModal();}
+function addRecipeOcrStep(ri){recipeOcrItems[ri].steps.push('');renderRecipeOcrModal();}
+function delRecipeOcrStep(ri,si){recipeOcrItems[ri].steps.splice(si,1);renderRecipeOcrModal();}
+function updateRecipeOcrAddBtn(){
+  const btn=document.getElementById('recipeOcrAddBtn');if(!btn)return;
+  const n=recipeOcrItems.filter(rc=>rc.checked).length;
+  btn.textContent=`チェックした${n}件をレシピに追加`;
+}
+function addRecipeOcrItemsToState(){
+  const checked=recipeOcrItems.filter(rc=>rc.checked&&rc.name.trim()&&rc.ings.some(g=>g.name.trim()));
+  if(!checked.length){toast('追加できるレシピがありません。料理名と材料を1つ以上入力してください。');return;}
+  checked.forEach(rc=>{
+    state.recipes.push({
+      id:uid(),
+      name:rc.name.trim(),
+      cat:RECIPE_OCR_CATS.includes(rc.cat)?rc.cat:'主菜',
+      time:rc.time||20,
+      ings:rc.ings.filter(g=>g.name.trim()).map(g=>({name:g.name.trim(),qty:g.qty,unit:(g.unit||'').trim()})),
+      favorite:false,freqDays:14,rating:0,memo:'',
+      steps:rc.steps.filter(s=>s.trim()),
+      lastCooked:null,seed:false
+    });
+  });
+  save();renderRecipes();closeModal('recipeOcrModal');
+  toast(`${checked.length}件のレシピを追加しました。📖`);
 }
 
 /* ============ 買い物リスト ============ */
