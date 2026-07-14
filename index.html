@@ -173,6 +173,17 @@ h2 .count{font-size:12px;color:var(--sub);font-weight:700;background:var(--count
 .modal::before{content:"";display:block;width:44px;height:5px;border-radius:99px;background:var(--line);margin:0 auto 14px}
 .modal h3{font-size:17px;font-weight:900;margin-bottom:14px}
 @media(min-width:640px){.modal-bg{align-items:center}.modal{border-radius:26px;width:520px}.modal::before{display:none}}
+.modal.tutorial-modal{display:flex;flex-direction:column;max-height:85vh;overflow:hidden}
+.modal.tutorial-modal h3{flex-shrink:0}
+.tutorial-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.tutorial-slide{text-align:center;padding:26px 8px 14px}
+.tutorial-icon{font-size:58px;line-height:1;margin-bottom:14px}
+.tutorial-slide h4{font-size:18px;font-weight:900;margin-bottom:10px}
+.tutorial-slide p{font-size:14px;line-height:1.85;color:var(--ink)}
+.tutorial-dots{display:flex;justify-content:center;gap:7px;flex-shrink:0;padding:8px 0 2px}
+.tutorial-dots .dot{width:7px;height:7px;border-radius:50%;background:var(--line);transition:width .15s,background .15s}
+.tutorial-dots .dot.on{background:var(--green);width:20px;border-radius:5px}
+.tutorial-footer{flex-shrink:0;padding-top:6px}
 nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--nav-bg);border-top:1px solid var(--line);display:flex;height:calc(var(--nav-h) + env(safe-area-inset-bottom));padding:6px 6px calc(env(safe-area-inset-bottom) + 6px);gap:2px;box-shadow:0 -6px 20px rgba(0,0,0,.05)}
 nav button{flex:1;background:none;border:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:10.5px;font-weight:800;color:var(--sub);border-radius:14px;transition:background .15s,color .15s}
 nav button .ico{font-size:20px;line-height:1;transition:transform .15s}
@@ -255,7 +266,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <div class="header-menu-dropdown" id="headerMenuDropdown">
       <button onclick="openTutorial();closeHeaderMenu()">📖 使い方</button>
       <button onclick="openDictModal();closeHeaderMenu()">📝 食材名の辞書</button>
-      <button onclick="switchTab('settings');closeHeaderMenu()">⚙️ 設定タブへ</button>
+      <button onclick="switchTab('settings');closeHeaderMenu()">⚙️ 設定</button>
     </div>
   </div>
 </header>
@@ -426,13 +437,6 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div></div>
   <h2>📅 買い物に行く曜日</h2>
   <div class="card"><div class="day-grid" id="dayGrid"></div></div>
-  <h2>🧮 買い物記録</h2>
-  <div class="card">
-    <div class="row">
-      <div class="grow"><span class="name" id="shopLogSummary"></span><div class="meta" id="shopLogRecent"></div></div>
-      <button class="btn small" onclick="logShopping()">＋ 今日買い物した</button>
-    </div>
-  </div>
   <h2>👨‍👩‍👧‍👦 家族で同期</h2>
   <div class="card">
     <div class="row" style="margin-bottom:8px">
@@ -480,7 +484,6 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <button data-tab="menu" onclick="switchTab('menu')"><span class="ico">🍽</span>献立</button>
   <button data-tab="shop" onclick="switchTab('shop')"><span class="ico">🛒</span>買い物</button>
   <button data-tab="receipt" onclick="switchTab('receipt')"><span class="ico">🧾</span>レシート</button>
-  <button data-tab="settings" onclick="switchTab('settings')"><span class="ico">⚙️</span>設定</button>
 </nav>
 
 <!-- 在庫追加/編集モーダル -->
@@ -572,18 +575,38 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 
 <!-- 使い方チュートリアルモーダル -->
 <div class="modal-bg" id="tutorialModal">
-  <div class="modal">
+  <div class="modal tutorial-modal">
     <h3>📖 こんだてループの使い方</h3>
-    <div style="font-size:14px;line-height:1.85">
-      <p style="margin-bottom:12px"><b>🔁 基本の流れ</b><br>①在庫を登録 → ②献立を提案 → ③足りない食材を買い物リストへ → ④買い物後にレシートを撮影 → ⑤在庫に反映、というループを繰り返します。</p>
-      <p style="margin-bottom:12px"><b>🧊 在庫タブ</b><br>食材の在庫と期限を管理します。期限が近い食材は上部に表示されます。</p>
-      <p style="margin-bottom:12px"><b>🍽 献立タブ</b><br>在庫と期限をもとに主菜・副菜・汁物を提案します。買い物日までのまとめ献立と仕込みリストも作成できます。</p>
-      <p style="margin-bottom:12px"><b>🛒 買い物タブ</b><br>足りない食材のリストを管理し、購入後は在庫に反映できます。よく行くスーパーのチラシや特売メモも登録できます。</p>
-      <p style="margin-bottom:12px"><b>🧾 レシートタブ</b><br>レシートを撮影・保存できます。設定タブでGemini APIキーを登録すると「🔍 読み取り」で品目を自動抽出し、確認モーダルでチェックしてから在庫に追加できます。</p>
-      <p style="margin-bottom:12px"><b>⚙️ 設定タブ</b><br>テーマ、買い物曜日、家族同期、レシートOCRのAPIキー、データのエクスポート・インポートを行います。</p>
-      <p style="margin-bottom:0"><b>👨‍👩‍👧‍👦 家族同期</b><br>「あいことば」を家族で共有すると、在庫・レシピ・買い物リスト・設定が家族の端末と同期します(レシート画像とAPIキーは端末内のみに保存されます)。</p>
+    <div class="tutorial-body" id="tutorialBody">
+      <div class="tutorial-slide" data-slide="0">
+        <div class="tutorial-icon">🧾</div>
+        <h4>レシートを撮る</h4>
+        <p>買ったものを撮影すると、Geminiが自動で在庫の候補を読み取ります。内容を確認してから在庫に追加します。</p>
+      </div>
+      <div class="tutorial-slide" data-slide="1" style="display:none">
+        <div class="tutorial-icon">🍽</div>
+        <h4>献立を立てて買い物リストへ</h4>
+        <p>在庫と期限から献立を提案します。足りない材料はそのまま買い物リストに追加できます。</p>
+      </div>
+      <div class="tutorial-slide" data-slide="2" style="display:none">
+        <div class="tutorial-icon">👨‍👩‍👧</div>
+        <h4>家族と共有</h4>
+        <p>「あいことば」を家族全員で入力すると、在庫・献立・買い物リストが家族の端末と同期します。</p>
+      </div>
     </div>
-    <div class="btn-row"><button class="btn wide" onclick="closeTutorial()">はじめる</button></div>
+    <div class="tutorial-dots" id="tutorialDots">
+      <span class="dot on" data-dot="0"></span>
+      <span class="dot" data-dot="1"></span>
+      <span class="dot" data-dot="2"></span>
+    </div>
+    <div class="tutorial-footer">
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn ghost" id="tutorialPrevBtn" onclick="tutorialPrev()" style="display:none">◀ 戻る</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn wide" id="tutorialNextBtn" onclick="tutorialNext()">次へ ▶</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -630,7 +653,7 @@ const GEMINI_MODEL='gemini-2.5-flash';   // 無料枠対象。変更する時は
 const SEED_RECIPES=[
  ['肉じゃが','主菜',30,[['牛こま切れ肉',200,'g'],['じゃがいも',3,'個'],['玉ねぎ',1,'個'],['にんじん',1,'本']],['じゃがいも・にんじんは一口大、玉ねぎはくし切り','油で肉→野菜の順に炒める','水・しょうゆ・みりん・砂糖で15分煮る','火を止めて味を含ませる']],
  ['鶏の照り焼き','主菜',20,[['鶏もも肉',300,'g'],['しょうゆ',2,'大さじ'],['みりん',2,'大さじ']],['鶏ももの水気を拭き、皮目から中火で焼く','裏返して蓋をして火を通す','しょうゆ・みりん・砂糖を加えて煮絡める']],
- ['豚の生姜焼き','主菜',15,[['豚ロース肉',300,'g'],['玉ねぎ',1,'個'],['しょうが',1,'かけ']],['玉ねぎは薄切り、しょうがはすりおろす','しょうが・しょうゆ・みりんでタレを作る','豚肉を焼き、玉ねぎとタレを加えて絡める']],
+ ['豚の生姜焼き','主菜',15,[['豚ロース肉',300,'g'],['玉ねぎ',1,'個'],['しょうが',10,'g']],['玉ねぎは薄切り、しょうがはすりおろす','しょうが・しょうゆ・みりんでタレを作る','豚肉を焼き、玉ねぎとタレを加えて絡める']],
  ['鮭のムニエル','主菜',15,[['鮭',3,'切れ'],['バター',20,'g'],['小麦粉',2,'大さじ']],['鮭に塩こしょうして小麦粉をまぶす','バターで両面をこんがり焼く','レモンやしょうゆで味を調える']],
  ['麻婆豆腐','主菜',20,[['豚ひき肉',150,'g'],['豆腐',1,'丁'],['長ねぎ',1,'本']],['豆腐は角切りにして水切り','ひき肉を炒めて豆板醤・味噌で味付け','豆腐と水を加えて煮て水溶き片栗粉でとろみ','長ねぎを散らす']],
  ['カレーライス','主菜',40,[['豚こま切れ肉',250,'g'],['じゃがいも',2,'個'],['にんじん',1,'本'],['玉ねぎ',2,'個'],['カレールー',0.5,'箱']],['野菜と肉を一口大に切る','肉→野菜の順に炒めて水を加え15分煮る','火を止めてルーを溶かし10分煮込む']],
@@ -724,16 +747,55 @@ document.addEventListener('click',e=>{
   if(dd&&dd.classList.contains('open')&&!e.target.closest('.header-menu'))closeHeaderMenu();
 });
 
-/* ============ 使い方チュートリアル ============ */
+/* ============ 使い方チュートリアル (3枚スライド) ============ */
 const TUTORIAL_SEEN_KEY='kondate-loop-tutorial-seen';   // 端末ローカル専用。同期対象外
+const TUTORIAL_SLIDE_COUNT=3;
+let tutorialSlide=0;
 function markTutorialSeen(){try{localStorage.setItem(TUTORIAL_SEEN_KEY,'1');}catch(e){}}
-function openTutorial(){openModal('tutorialModal');}
+function openTutorial(){tutorialShowSlide(0);openModal('tutorialModal');}
 function closeTutorial(){closeModal('tutorialModal');markTutorialSeen();}
+function tutorialShowSlide(i){
+  tutorialSlide=Math.max(0,Math.min(TUTORIAL_SLIDE_COUNT-1,i));
+  document.querySelectorAll('#tutorialBody .tutorial-slide').forEach(el=>{
+    el.style.display=Number(el.dataset.slide)===tutorialSlide?'':'none';
+  });
+  document.querySelectorAll('#tutorialDots .dot').forEach(el=>{
+    el.classList.toggle('on',Number(el.dataset.dot)===tutorialSlide);
+  });
+  document.getElementById('tutorialBody').scrollTop=0;
+  document.getElementById('tutorialPrevBtn').style.display=tutorialSlide===0?'none':'';
+  const nextBtn=document.getElementById('tutorialNextBtn');
+  const isLast=tutorialSlide===TUTORIAL_SLIDE_COUNT-1;
+  nextBtn.textContent=isLast?'はじめる':'次へ ▶';
+  nextBtn.onclick=isLast?closeTutorial:tutorialNext;
+}
+function tutorialNext(){tutorialShowSlide(tutorialSlide+1);}
+function tutorialPrev(){tutorialShowSlide(tutorialSlide-1);}
 function maybeShowTutorial(){
   let seen=false;
   try{seen=!!localStorage.getItem(TUTORIAL_SEEN_KEY);}catch(e){}
   if(!seen)openTutorial();
 }
+(function initTutorialSwipe(){
+  const body=document.getElementById('tutorialBody');
+  if(!body)return;
+  let sx=null,sy=null;
+  body.addEventListener('touchstart',e=>{
+    if(!e.touches||e.touches.length!==1)return;
+    sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+  },{passive:true});
+  body.addEventListener('touchend',e=>{
+    if(sx===null)return;
+    const t=e.changedTouches&&e.changedTouches[0];
+    if(t){
+      const dx=t.clientX-sx,dy=t.clientY-sy;
+      if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){
+        if(dx<0)tutorialNext();else tutorialPrev();
+      }
+    }
+    sx=null;sy=null;
+  },{passive:true});
+})();
 
 /* ============ 食材名の正規化辞書 ============ */
 // 確実に同一食材と言えるゆらぎのみ収録(別食材を混ぜない)
@@ -1642,17 +1704,6 @@ function toggleDay(i){
   arr.includes(i)?arr.splice(arr.indexOf(i),1):arr.push(i);
   save();renderDays();
 }
-function logShopping(){
-  state.settings.shoppingLog.push(new Date().toISOString().slice(0,10));
-  save();renderShopLog();toast('買い物を記録しました。🛍 レシートも撮影してください。');
-}
-function renderShopLog(){
-  const log=state.settings.shoppingLog;
-  const month=new Date().toISOString().slice(0,7);
-  const thisMonth=log.filter(d=>d.startsWith(month)).length;
-  document.getElementById('shopLogSummary').textContent=`今月 ${thisMonth}回 / 累計 ${log.length}回`;
-  document.getElementById('shopLogRecent').textContent=log.length?`最終: ${log[log.length-1]}`:'まだ記録がありません';
-}
 function exportData(){
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -1730,12 +1781,24 @@ function viewRecipe(id){
 }
 
 /* ============ 調理モード (作り方の対話型読み上げ) ============ */
-let cookState=null;     // {recipeId, name, steps, idx} セッション中のみ・非永続
+let cookState=null;     // {recipeId, name, steps, ings, minIdx, idx} セッション中のみ・非永続。idx===-1は材料紹介カード
 let cookRecognition=null;
+function fmtQtyUnitSpeech(qty,unit){         // 読み上げ・表示共通の分量整形(大さじ/小さじはunit+qty、それ以外はqty+unit)
+  if(qty==null||qty==='')return'';
+  const u=unit==='g'?'グラム':(unit||'');
+  if(u==='大さじ'||u==='小さじ')return`${u}${qty}`;
+  return`${qty}${u}`;
+}
+function cookIngsLine(){
+  if(!cookState||!cookState.ings||!cookState.ings.length)return'';
+  return cookState.ings.filter(g=>g.name).map(g=>`${g.name}${g.qty!=null?fmtQtyUnitSpeech(g.qty,g.unit):''}`).join('、');
+}
 function openCookMode(id){
   const r=state.recipes.find(x=>x.id===id);
   if(!r||!r.steps||!r.steps.length){toast('作り方が登録されていません。');return;}
-  cookState={recipeId:id,name:r.name,steps:r.steps,idx:0};
+  const ings=(r.ings||[]).filter(g=>g.name);
+  const minIdx=ings.length?-1:0;
+  cookState={recipeId:id,name:r.name,steps:r.steps,ings,minIdx,idx:minIdx};
   document.getElementById('cookModeTitle').textContent=`🔊 ${r.name}`;
   document.getElementById('cookVoiceHint').textContent=SR_CLASS?'🎤「つぎ」「もう一回」「もどる」で音声操作もできます':'';
   openModal('cookModeModal');
@@ -1745,10 +1808,11 @@ function openCookMode(id){
 function renderCookStep(){
   if(!cookState)return;
   const total=cookState.steps.length;
+  const isIntro=cookState.idx===-1;
   const done=cookState.idx>=total;
-  document.getElementById('cookStepLabel').textContent=done?'完了 🎉':`工程 ${cookState.idx+1}/${total}`;
-  document.getElementById('cookStepText').textContent=done?`「${cookState.name}」お疲れさまでした!`:cookState.steps[cookState.idx];
-  document.getElementById('cookPrevBtn').disabled=cookState.idx<=0;
+  document.getElementById('cookStepLabel').textContent=isIntro?'材料':done?'完了 🎉':`工程 ${cookState.idx+1}/${total}`;
+  document.getElementById('cookStepText').textContent=isIntro?`材料: ${cookIngsLine()}`:done?`「${cookState.name}」お疲れさまでした!`:cookState.steps[cookState.idx];
+  document.getElementById('cookPrevBtn').disabled=cookState.idx<=cookState.minIdx;
   document.getElementById('cookRepeatBtn').style.display=done?'none':'';
   document.getElementById('cookNextBtn').textContent=done?'閉じる':'次へ ▶';
 }
@@ -1757,8 +1821,9 @@ function speakCookStep(){
   stopCookListening();
   if(!('speechSynthesis'in window))return;   // 読み上げ非対応でも画面表示・タップ操作は使える
   speechSynthesis.cancel();
+  const isIntro=cookState.idx===-1;
   const done=cookState.idx>=cookState.steps.length;
-  const text=done?`完了です。お疲れさまでした。`:cookState.steps[cookState.idx];
+  const text=isIntro?`材料は、${cookIngsLine()}です。`:done?`完了です。お疲れさまでした。`:cookState.steps[cookState.idx];
   const u=new SpeechSynthesisUtterance(text);
   u.lang='ja-JP';u.rate=1.0;
   if(!done)u.onend=()=>{if(cookState)startCookListening();};
@@ -1774,7 +1839,7 @@ function cookNextOrClose(){
   cookNext();
 }
 function cookPrev(){
-  if(!cookState||cookState.idx<=0)return;
+  if(!cookState||cookState.idx<=cookState.minIdx)return;
   cookState.idx--;
   renderCookStep();speakCookStep();
 }
@@ -2216,7 +2281,7 @@ function renderAll(){
     const on=b.dataset.loc===state.ui.locFilter;
     b.classList.toggle('on',on);b.style.background=on?'var(--green)':'';b.style.color=on?'#fff':'';
   });
-  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderShopLog();renderReceipts();renderPlan();renderCalendar();renderDeals();
+  renderStock();renderRecipes();renderShopping();renderStores();renderDays();renderReceipts();renderPlan();renderCalendar();renderDeals();
   if(state.current)renderSuggestion();
   suggestShowStage(state.current&&state.current.length?'result':'input');
   togglePlanSection(!!state.plan);   // 既に作成済みのまとめ献立があれば開いた状態で表示する
