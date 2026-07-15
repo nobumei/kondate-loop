@@ -34,6 +34,11 @@ interface InventoryItem {
   addedAt: string;       // 'YYYY-MM-DD'
   memo: string;
 }
+// v1.15: 在庫の重複合算キーは normalizeName(name) + unit + location の3点一致。
+// 在庫に追加する全経路(手動追加saveStock・OCR確認モーダルaddOcrItemsToStock・買い物→在庫checkedToStock)は
+// 共通関数addToInventory()を通り、キーが一致する既存行があれば新規行を作らずqtyを加算する。
+// マージ時: expiryは非nullかつより近い(小さい)日付を採用(安全側)、memoは非空を優先(両方非空なら既存側を維持)。
+// 既存データの重複統合はmergeDuplicateStock()(在庫タブの「🔗 重複をまとめる」ボタン)で手動実行する。
 
 interface Recipe {
   id: string;            // seed0..seed17 は初期データ
@@ -169,6 +174,7 @@ interface SyncConfig {
 | v1.12 | AppStateスキーマ変更なし。UI改修: 単発献立提案の結果画面に「🗑 クリア」ボタン追加(state.current=nullで入力画面に戻る)、買い物タブに一括操作バー追加(すべて選択/解除トグル・選択を在庫に追加・選択を削除)、BUILTIN_NORM_DICTをひらがな正規化方針で拡充(20組→128組・63食材)、UI文言「食材名の辞書」→「食材辞書」に変更(関数名・キー不変) | 2026-07-14 |
 | v1.13 | AppStateスキーマ変更なし。Geminiキーをクライアントから撤去しSupabase Edge Function(`supabase/functions/gemini/index.ts`、secret=GEMINI_API_KEY)経由の呼び出しに統一。設定タブのGemini APIキー入力カードを削除、`loadGeminiKey`/`saveGeminiKey`/`GEMINI_KEY_STORAGE`をindex.htmlから削除、共通ヘルパ`callGemini()`に4か所(レシートOCR/チラシOCR/献立生成/レシピOCR)の直fetchを統一。`kondate-loop-gemini`キーは非推奨(未使用・残置) | 2026-07-15 |
 | v1.14 | Settings.shelfLife追加、migrate()で`{}`補完(家族同期対象)。BUILTIN_SHELF_LIFE(食材ごとの賞味期限デフォルト、63食材)を新設。在庫追加の全経路(手動追加・OCR確認モーダル・買い物→在庫)で保存名をnormalizeName()で正規化するよう統一(手動追加が唯一未正規化だった)。inStock()に完全一致優先+短い正規名(2文字以下)の部分一致誤爆防止を追加。食材辞書モーダルを組み込み+ユーザーの全63正規名一覧+検索+賞味期限編集UIに刷新 | 2026-07-15 |
+| v1.15 | AppStateスキーマ変更なし。在庫追加の全経路(手動追加・OCR確認モーダル・買い物→在庫)を共通関数`addToInventory()`経由に統一し、同一食材(normalizeName)・同一unit・同一locationの既存行があれば合算(qty加算、expiryは近い方、memoは非空優先)する重複合算を追加。既存の重複データ用に`mergeDuplicateStock()`(在庫タブの「🔗 重複をまとめる」ボタン)を新設。在庫タブに一括操作バー(すべて選択/解除・選択を削除・すべて削除。locFilter適用中は表示中の在庫のみ対象)を追加。レシートOCR/チラシOCR/レシピOCR確認モーダル共通のCSS(`.ocr-item`/`.ocr-grid`)にmin-width:0等を追加し375px幅での入力欄はみ出しを修正。読み取り済みレシート(`r.items`あり)は「✓ 読み取り済み」ボタンからレビュー用モーダル(画像+内容の閲覧、再読み取りボタン)を開けるように変更 | 2026-07-15 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
