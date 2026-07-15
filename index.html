@@ -265,7 +265,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <button class="icon-btn" id="headerMenuBtn" onclick="toggleHeaderMenu(event)" aria-label="メニュー">☰</button>
     <div class="header-menu-dropdown" id="headerMenuDropdown">
       <button onclick="openTutorial();closeHeaderMenu()">📖 使い方</button>
-      <button onclick="openDictModal();closeHeaderMenu()">📝 食材名の辞書</button>
+      <button onclick="openDictModal();closeHeaderMenu()">📝 食材辞書</button>
       <button onclick="switchTab('settings');closeHeaderMenu()">⚙️ 設定</button>
     </div>
   </div>
@@ -327,6 +327,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       </div>
       <div class="btn-row">
         <button class="btn ghost small" onclick="suggestShowStage('input')">🎤 話し直して再提案する</button>
+        <button class="btn ghost small" onclick="clearSuggestion()">🗑 クリア</button>
       </div>
     </div>
   </div>
@@ -381,11 +382,14 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 <section id="page-shop" class="tab-page">
   <h2>🛒 買い物リスト <span class="count" id="shopCount"></span></h2>
   <div class="card" id="shopListBox"></div>
+  <div class="btn-row" id="shopBulkBar">
+    <button class="btn small ghost" id="shopSelectAllBtn" onclick="toggleSelectAllShop()">☑️ すべて選択</button>
+    <button class="btn small sub" onclick="checkedToStock()">✓ 選択を在庫に追加</button>
+    <button class="btn small danger" onclick="clearChecked()">🗑 選択を削除</button>
+  </div>
   <div class="btn-row">
     <button class="btn small sub" onclick="openShopAdd()">＋ 手動で追加</button>
     <button class="btn small sub" onclick="speakShopping()">🔊 読み上げ</button>
-    <button class="btn small ghost" onclick="checkedToStock()">📥 購入済みを在庫へ</button>
-    <button class="btn small danger" onclick="clearChecked()">🧹 購入済みを削除</button>
   </div>
   <h2>📰 チラシから特売を取り込む</h2>
   <div class="card">
@@ -623,10 +627,10 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   </div>
 </div>
 
-<!-- 食材名の辞書モーダル -->
+<!-- 食材辞書モーダル -->
 <div class="modal-bg" id="dictModal">
   <div class="modal">
-    <h3>📝 食材名の辞書</h3>
+    <h3>📝 食材辞書</h3>
     <p class="meta" id="dictBuiltinInfo" style="margin-bottom:10px"></p>
     <div id="dictUserList"></div>
     <div class="field field-grid2">
@@ -812,17 +816,78 @@ function maybeShowTutorial(){
 
 /* ============ 食材名の正規化辞書 ============ */
 // 確実に同一食材と言えるゆらぎのみ収録(別食材を混ぜない)
+// v1.12: ひらがなを正規名(canonical)とする方針で拡充(野菜・調味料中心)。
+// 卵/豆腐など漢字表記が一般的な食材は無理にひらがな化しない。肉類は「鶏もも肉」等の一般表記を採用。
+// 同音異義・多義語(さけ=酒/鮭、もも=桃/鶏もも 等)は誤マッチ防止のため収録しない。
 const BUILTIN_NORM_DICT={
-  'たまねぎ':'玉ねぎ','タマネギ':'玉ねぎ','玉葱':'玉ねぎ',
-  'ジャガイモ':'じゃがいも','馬鈴薯':'じゃがいも','じゃが芋':'じゃがいも',
+  /* 野菜 */
+  '玉ねぎ':'たまねぎ','玉葱':'たまねぎ','タマネギ':'たまねぎ',
   '人参':'にんじん','ニンジン':'にんじん',
-  'ねぎ':'長ねぎ','長ネギ':'長ねぎ',
-  '鶏もも':'鶏もも肉','鶏モモ肉':'鶏もも肉','鶏モモ':'鶏もも肉',
-  '豚こま':'豚こま切れ肉','豚コマ':'豚こま切れ肉',
-  'たまご':'卵','玉子':'卵',
-  'キュウリ':'きゅうり',
+  'じゃが芋':'じゃがいも','ジャガイモ':'じゃがいも','馬鈴薯':'じゃがいも',
+  '大根':'だいこん','ダイコン':'だいこん',
+  '胡瓜':'きゅうり','キュウリ':'きゅうり',
+  '白菜':'はくさい','ハクサイ':'はくさい',
+  'ねぎ':'ながねぎ','長ねぎ':'ながねぎ','長ネギ':'ながねぎ','長葱':'ながねぎ','ナガネギ':'ながねぎ',
+  '茄子':'なす','ナス':'なす',
+  '南瓜':'かぼちゃ','カボチャ':'かぼちゃ',
+  'ほうれん草':'ほうれんそう','ホウレンソウ':'ほうれんそう',
+  '小松菜':'こまつな','コマツナ':'こまつな',
+  'モヤシ':'もやし',
+  '蓮根':'れんこん','レンコン':'れんこん',
+  '牛蒡':'ごぼう','ゴボウ':'ごぼう',
+  'さつま芋':'さつまいも','サツマイモ':'さつまいも','薩摩芋':'さつまいも',
+  'シメジ':'しめじ',
+  'えのきだけ':'えのき','エノキ':'えのき','エノキダケ':'えのき',
+  '舞茸':'まいたけ','マイタケ':'まいたけ',
+  '椎茸':'しいたけ','シイタケ':'しいたけ',
   '生姜':'しょうが','ショウガ':'しょうが',
-  'ダイコン':'大根',
+  '茗荷':'みょうが','ミョウガ':'みょうが',
+  '大蒜':'にんにく','ニンニク':'にんにく',
+  'アスパラ':'アスパラガス',
+  'トウモロコシ':'とうもろこし',
+  'インゲン':'いんげん','サヤインゲン':'いんげん','さやいんげん':'いんげん',
+  '水菜':'みずな','ミズナ':'みずな',
+  'チンゲン菜':'ちんげんさい','チンゲンサイ':'ちんげんさい','青梗菜':'ちんげんさい',
+  'ししとうがらし':'ししとう','シシトウ':'ししとう',
+  '蕪':'かぶ','カブ':'かぶ',
+  '長いも':'ながいも','長芋':'ながいも','ナガイモ':'ながいも',
+  'サトイモ':'さといも','里芋':'さといも',
+  '大葉':'しそ','シソ':'しそ',
+  '三つ葉':'みつば','ミツバ':'みつば',
+  /* 肉 */
+  '鶏もも':'鶏もも肉','鶏モモ肉':'鶏もも肉','鶏モモ':'鶏もも肉','とりもも肉':'鶏もも肉',
+  '鶏胸肉':'鶏むね肉','鶏ムネ肉':'鶏むね肉','鶏むね':'鶏むね肉','とりむね肉':'鶏むね肉',
+  'ささみ':'鶏ささみ','ササミ':'鶏ささみ',
+  '豚こま':'豚こま切れ肉','豚コマ':'豚こま切れ肉','豚コマ切れ肉':'豚こま切れ肉','豚こまぎれ肉':'豚こま切れ肉',
+  '豚バラ':'豚バラ肉','豚ばら肉':'豚バラ肉',
+  '豚ロース':'豚ロース肉',
+  '牛こま':'牛こま切れ肉','牛コマ':'牛こま切れ肉','牛こまぎれ肉':'牛こま切れ肉',
+  '合挽き肉':'合いびき肉','あいびき肉':'合いびき肉','合びき肉':'合いびき肉',
+  /* 卵・大豆製品・乳製品 */
+  'たまご':'卵','玉子':'卵',
+  'とうふ':'豆腐','トウフ':'豆腐',
+  'あぶらあげ':'油揚げ','油揚':'油揚げ',
+  'あつあげ':'厚揚げ',
+  'なっとう':'納豆',
+  'シラス':'しらす','しらす干し':'しらす',
+  'ミルク':'牛乳',
+  /* 海藻・乾物・練り物 */
+  '若布':'わかめ','若芽':'わかめ','ワカメ':'わかめ',
+  'ヒジキ':'ひじき',
+  '昆布':'こんぶ','コンブ':'こんぶ',
+  '竹輪':'ちくわ',
+  '蒲鉾':'かまぼこ',
+  '蒟蒻':'こんにゃく','コンニャク':'こんにゃく',
+  '白滝':'しらたき',
+  /* 調味料 */
+  '醤油':'しょうゆ',
+  '味醂':'みりん',
+  '砂糖':'さとう',
+  '塩':'しお',
+  '胡椒':'こしょう','コショウ':'こしょう',
+  '味噌':'みそ','ミソ':'みそ',
+  '出汁':'だし','ダシ':'だし',
+  'ゴマ油':'ごま油',
 };
 function normalizeName(s){
   s=String(s??'').trim();
@@ -1396,6 +1461,12 @@ async function suggestGenerate(){
   await suggest();
   suggestShowStage('result');
 }
+function clearSuggestion(){
+  state.current=null;
+  save();
+  document.getElementById('suggestBox').innerHTML='<div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div>';
+  suggestShowStage('input');
+}
 function renderSuggestion(){
   const combo=currentRecipes();
   if(!combo.length)return;
@@ -1646,20 +1717,29 @@ function renderShopping(){
       </div>
       <button class="icon-btn" onclick="delShop('${i.id}')">🗑</button>
     </div>`).join(''):'<div class="empty">リストは空です。献立タブの「足りない食材を買い物リストへ」から追加できます。</div>';
+  const selectAllBtn=document.getElementById('shopSelectAllBtn');
+  if(selectAllBtn)selectAllBtn.textContent=(items.length&&items.every(i=>i.checked))?'☐ 選択を解除':'☑️ すべて選択';
 }
 function toggleShop(id){const i=state.shopping.find(x=>x.id===id);i.checked=!i.checked;save();renderShopping();}
 function delShop(id){state.shopping=state.shopping.filter(x=>x.id!==id);save();renderShopping();}
+function toggleSelectAllShop(){
+  if(!state.shopping.length){toast('買い物リストは空です。');return;}
+  const allChecked=state.shopping.every(i=>i.checked);
+  state.shopping.forEach(i=>i.checked=!allChecked);
+  save();renderShopping();
+}
 function clearChecked(){
   const n=state.shopping.filter(i=>i.checked).length;
-  if(!n){toast('購入済みの品がありません。');return;}
-  if(!confirm(`購入済み ${n}件 を削除する?`))return;
+  if(!n){toast('選択した品がありません。');return;}
+  if(!confirm(`選択した ${n}件 を削除する?`))return;
   state.shopping=state.shopping.filter(i=>!i.checked);save();renderShopping();
+  toast(`${n}件を削除しました。🗑`);
 }
 function checkedToStock(){
   const done=state.shopping.filter(i=>i.checked);
-  if(!done.length){toast('チェック済みの品がありません。');return;}
+  if(!done.length){toast('選択した品がありません。');return;}
   const today=new Date().toISOString().slice(0,10);
-  done.forEach(i=>state.inventory.push({id:uid(),name:i.name,qty:i.qty||1,unit:i.unit||'個',location:'冷蔵',expiry:null,addedAt:today,memo:'買い物リストから追加'}));
+  done.forEach(i=>state.inventory.push({id:uid(),name:normalizeName(i.name),qty:i.qty||1,unit:i.unit||'個',location:'冷蔵',expiry:null,addedAt:today,memo:''}));
   state.shopping=state.shopping.filter(i=>!i.checked);
   save();renderShopping();renderStock();
   toast(`${done.length}品を在庫に追加しました。📥 期限は在庫タブで設定してください。`);
