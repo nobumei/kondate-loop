@@ -241,9 +241,12 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 .meal-check{display:flex;align-items:center;gap:3px;font-size:12.5px;font-weight:700;color:var(--sub)}
 .meal-check input{width:18px;height:18px;accent-color:var(--green)}
 /* 献立提案フロー(マイク起点) */
-.mic-big-btn{display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;border:none;background:var(--green);color:#fff;font-size:40px;box-shadow:var(--btn-shadow);margin:6px auto 4px}
+.mic-big-btn{display:flex;align-items:center;justify-content:center;width:96px;height:96px;border-radius:50%;border:none;background:var(--green);color:#fff;font-size:40px;box-shadow:var(--btn-shadow);margin:6px auto 4px;touch-action:none;user-select:none}
 .mic-big-btn:active{transform:scale(.94)}
 .mic-big-btn:disabled{opacity:.65}
+.mic-big-btn.rec-active{background:var(--red);animation:mic-pulse 1s ease-in-out infinite}
+.mic-btn.rec-active{background:var(--red-soft);color:var(--red)}
+@keyframes mic-pulse{0%,100%{box-shadow:0 0 0 0 var(--red-soft)}50%{box-shadow:0 0 0 12px transparent}}
 .day-acc-head{width:100%;background:none;border:none;display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-weight:900;color:var(--green);font-size:14px;text-align:left}
 .day-acc-head:active{opacity:.7}
 .day-acc-body{margin-top:8px}
@@ -303,10 +306,11 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
   <div class="card" id="suggestFlowBox">
     <!-- (a) 入力画面: マイク起点 -->
     <div id="suggestStage-input">
-      <button type="button" class="mic-big-btn" id="suggestMicBigBtn" onclick="suggestMicTap()" aria-label="マイクで要望を話す">🎤</button>
-      <p class="meta" style="text-align:center;line-height:1.8;margin-top:10px">
+      <button type="button" class="mic-big-btn" id="suggestMicBigBtn" aria-label="押している間だけ話せます">🎤</button>
+      <div class="meta" id="suggestMicHint" style="text-align:center;min-height:18px;font-weight:800;color:var(--red)"></div>
+      <p class="meta" style="text-align:center;line-height:1.8;margin-top:2px">
         例:「冷蔵庫のにんじんと豚肉を使いたい」「今日は中華の気分」「朝ごはん向けに軽めで」<br>
-        残っている食材や、朝・昼・夜のどれかを話しかけてください。
+        マイクを押している間だけ聞き取ります。残っている食材や、朝・昼・夜のどれかを話しかけてください。
       </p>
       <div class="field" style="margin-top:16px;margin-bottom:8px">
         <label>または、文字で入力</label>
@@ -359,7 +363,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       <label>まとめ提案の要望(任意・AIに伝えます)</label>
       <div class="row">
         <input id="planWishInput" class="grow" placeholder="今日は中華の気分/にんじんを使い切りたい など">
-        <button type="button" class="icon-btn mic-btn" id="planWishMicBtn" style="display:none" onclick="startDictation('planWishInput',this)" aria-label="音声で要望を入力">🎤</button>
+        <button type="button" class="icon-btn mic-btn" id="planWishMicBtn" style="display:none" aria-label="押している間だけ話せます">🎤</button>
       </div>
     </div>
     <div class="btn-row">
@@ -1607,6 +1611,18 @@ function recentProteinSources(days){
   });
   return sources;
 }
+// v1.18: AIプロンプト用に直近の調理履歴から料理名をlimit件だけ抽出する(新しい順)。要望なしのおまかせ提案で重複を避ける材料にする
+function recentHistoryNames(limit){
+  const names=[];
+  for(let i=state.history.length-1;i>=0&&names.length<limit;i--){
+    (state.history[i].ids||[]).forEach(id=>{
+      if(names.length>=limit)return;
+      const r=state.recipes.find(x=>x.id===id);
+      if(r)names.push(r.name);
+    });
+  }
+  return names;
+}
 // picked: 同じ提案(同日・同プラン内)ですでに選ばれたレシピの配列。渡すと重複しにくいよう減点する(v1.9)
 function scoreRecipe(r,light,picked){
   const exp=expiringNames();
@@ -1652,7 +1668,7 @@ function searchLinks(r){
   const delish='https://delishkitchen.tv/search?q='+encodeURIComponent(r.name);
   return`<span class="links"><a href="${kurashiru}" target="_blank" rel="noopener">🔍 クラシル</a><a href="${delish}" target="_blank" rel="noopener">🔍 DELISH KITCHEN</a></span>`;
 }
-// 要望入力(音声/テキスト)をGeminiに渡して献立候補を取得する。要望が空の時は一切呼ばれない
+// 要望入力(音声/テキスト)をGeminiに渡して献立候補を取得する。v1.18: 要望が空でも常に呼び、在庫・期限・直近履歴を考慮した多様な献立を考えさせる(失敗時はsuggest側で端末内スコアリングにフォールバック)
 const MENU_RESPONSE_SCHEMA={
   type:'OBJECT',
   properties:{
@@ -1670,21 +1686,27 @@ const MENU_RESPONSE_SCHEMA={
 };
 function buildMenuPrompt(wish,frame){
   const inv=state.inventory.map(i=>({name:i.name,expiry:i.expiry||null}));
-  const recipes=state.recipes.map(r=>({id:r.id,name:r.name,cat:r.cat,time:r.time,ings:r.ings.map(g=>g.name)}));
+  // v1.18: レシピ94件でもプロンプトが肥大化しないよう、材料は主要1〜3個のみ渡す(採用可否の判定にはidの実在チェックを別途行うため十分)
+  const recipes=state.recipes.map(r=>({id:r.id,name:r.name,cat:r.cat,mains:r.ings.slice(0,3).map(g=>g.name)}));
+  const recentNames=recentHistoryNames(10);
   const mealComposition={'夜':'主菜1品・副菜1品・汁物1品','朝':'主菜1品・汁物1品(時短優先)','昼':'主菜1品・汁物1品(時短優先)'};
   const frameText=frame.single
     ?'今日1食分の献立を提案してください(主菜1品・副菜1品・汁物1品)。days配列は1件のみにし、offset=0、meals.夜にレシピidを3件入れてください(朝・昼は空でよい)。'
     :`${frame.days}日分(offset=0〜${frame.days-1})、各日について次の食事を提案してください: ${frame.meals.map(m=>`${m}(${mealComposition[m]})`).join('、')}。`;
+  // v1.18: 要望が空でもGeminiに考えさせる(「同じ提案ばかり」への対策)。要望があれば従来どおりそれを最優先する
+  const wishLine=wish
+    ?`ユーザーの要望: 「${wish}」。この要望を最優先して選んでください。`
+    :'ユーザーからの特別な要望はありません。おまかせで、在庫にある食材・期限が近い食材を活かしつつ、下記の直近に作った献立とは被らないよう主菜の主タンパク源(肉/魚/卵/大豆など)・ジャンル・調理法を変え、栄養バランスよく多様な献立を選んでください。';
   return[
     'あなたは4人家族向けの家庭料理アドバイザーです。',
-    `ユーザーの要望: 「${wish}」`,
-    `在庫食材(JSON): ${JSON.stringify(inv)}`,
-    `登録レシピ一覧(JSON、idはこの中からのみ選ぶこと): ${JSON.stringify(recipes)}`,
+    wishLine,
+    `在庫食材(JSON、name/expiry): ${JSON.stringify(inv)}`,
+    `登録レシピ一覧(JSON、idはこの中からのみ選ぶこと。mainsは主要材料): ${JSON.stringify(recipes)}`,
+    recentNames.length?`直近に作った献立(この料理名との重複はなるべく避ける): ${recentNames.join('、')}`:'',
     frameText,
-    '在庫にある食材や期限が近い食材を活用しつつ、ユーザーの要望を最優先して選んでください。',
-    '主菜の主タンパク源(肉/魚/卵/大豆など)やジャンル・調理法は日替わりで変え、緑黄色野菜を毎日の献立に入れ、同じ食材の連続使用を避けて栄養バランスと変化を持たせてください。',
+    '在庫にある食材や期限が近い食材を活用しつつ、主菜の主タンパク源(肉/魚/卵/大豆など)やジャンル・調理法は日替わりで変え、緑黄色野菜を毎日の献立に入れ、同じ食材の連続使用を避けて栄養バランスと変化を持たせてください。',
     '必ずレシピ一覧に実在するidだけを使い、存在しないidや架空のidは絶対に使わないでください。'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 async function callGeminiForMenu(wish,frame){
   const data=await callGemini(
@@ -1716,34 +1738,33 @@ function comboFromIdsForCats(ids,cats,used,light,picked){
   return cats.map(c=>byCat[c]).filter(Boolean);
 }
 let suggestReason=null;   // AIの提案理由。セッション内のみ・state非保存
+// v1.18: 要望の有無にかかわらずGeminiに考えさせる(「同じ提案ばかり」対策)。通信失敗・不正応答時は端末内スコアリングにフォールバックする
 async function suggest(){
   if(!state.inventory.length){toast('先に在庫を登録すると精度が上がります。🧊');}
   const wish=(document.getElementById('wishInput')?.value||'').trim();
   suggestReason=null;
-  if(wish){
-    const btn=document.getElementById('suggestBtn');
-    const orig=btn?btn.textContent:null;
-    if(btn){btn.disabled=true;btn.textContent='⏳ AIが考え中…';}
-    try{
-      const aiRes=await callGeminiForMenu(wish,{single:true});
-      const day=(aiRes.days||[])[0];
-      const idsRaw=(day&&day.meals&&day.meals['夜'])||[];
-      const validIds=idsRaw.filter(id=>state.recipes.some(r=>r.id===id));
-      const combo=comboFromIdsForCats(validIds,['主菜','副菜','汁物'],new Set(),false);
-      if(combo.length){
-        state.current=combo.map(r=>r.id);
-        suggestReason=aiRes.reason||null;
-        save();renderSuggestion();
-        return;
-      }
-    }catch(e){
-      console.error(e);
-      toast(e.message||'AI提案に失敗したため通常の提案を使用します。');
-    }finally{
-      if(btn){btn.disabled=false;btn.textContent=orig;}
+  const btn=document.getElementById('suggestBtn');
+  const orig=btn?btn.textContent:null;
+  if(btn){btn.disabled=true;btn.textContent='⏳ AIが考え中…';}
+  try{
+    const aiRes=await callGeminiForMenu(wish,{single:true});
+    const day=(aiRes.days||[])[0];
+    const idsRaw=(day&&day.meals&&day.meals['夜'])||[];
+    const validIds=idsRaw.filter(id=>state.recipes.some(r=>r.id===id));
+    const combo=comboFromIdsForCats(validIds,['主菜','副菜','汁物'],new Set(),false);
+    if(combo.length){
+      state.current=combo.map(r=>r.id);
+      suggestReason=aiRes.reason||null;
+      save();renderSuggestion();
+      return;
     }
+  }catch(e){
+    console.error(e);
+    toast(e.message||'AI提案に失敗したため通常の提案を使用します。');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=orig;}
   }
-  const combo=[];                                 // v1.9: 主菜→副菜→汁物の順に選び、後続は先に選んだ分を減点材料にする(多様性)
+  const combo=[];                                 // フォールバック: 端末内スコアリング(v1.9: 主菜→副菜→汁物の順に選び、後続は先に選んだ分を減点材料にする)
   ['主菜','副菜','汁物'].forEach(cat=>{
     const r=pickBest(cat,combo);
     if(r)combo.push(r);
@@ -1766,9 +1787,6 @@ function suggestGoConfirm(){
   if(box)box.textContent=wish||'(要望なし・おまかせで提案します)';
   suggestShowStage('confirm');
 }
-function suggestMicTap(){
-  startDictation('wishInput',document.getElementById('suggestMicBigBtn'),()=>suggestGoConfirm());
-}
 async function suggestGenerate(){
   await suggest();
   suggestShowStage('result');
@@ -1778,6 +1796,7 @@ function clearSuggestion(){
   save();
   document.getElementById('suggestBox').innerHTML='<div class="empty">「献立を提案」を押すと、在庫と期限から献立を提案します。</div>';
   suggestShowStage('input');
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 function renderSuggestion(){
   const combo=currentRecipes();
@@ -1824,18 +1843,32 @@ function markCooked(){
 
 /* ============ レシピ一覧 ============ */
 const FREQ_PRESETS=[['3日',3],['1週',7],['2週',14],['1月',30],['3月',90],['半年',180],['1年',365]];
+// v1.18: レシピ一覧を「現在の在庫で作りやすい順」に並べる。在庫カバレッジ(inStockでヒットする材料数/全材料数)を主キーに、
+// 期限が近い在庫を使える分・お気に入りを小さな加点として使う(scoreRecipeの乱数・頻度ロジックは一覧の並びには使わない=タップの都度並びが揺れるのを避けるため)
+function recipeStockStat(r,exp){
+  const total=r.ings.length;
+  const hit=r.ings.filter(g=>inStock(g.name)).length;
+  const expHit=r.ings.filter(g=>exp.some(e=>e.includes(g.name)||g.name.includes(e))).length;
+  return{hit,total,ratio:total?hit/total:0,expHit};
+}
 function renderRecipes(){
   const btn=document.getElementById('favFilterBtn');
   btn.style.background=state.ui.favOnly?'var(--green)':'';btn.style.color=state.ui.favOnly?'#fff':'';
-  let list=[...state.recipes].sort((a,b)=>(b.favorite-a.favorite)||a.cat.localeCompare(b.cat,'ja'));
+  const exp=expiringNames();
+  let list=[...state.recipes].sort((a,b)=>{
+    const sa=recipeStockStat(a,exp),sb=recipeStockStat(b,exp);
+    return (sb.ratio-sa.ratio)||(sb.expHit-sa.expHit)||(b.favorite-a.favorite)||a.cat.localeCompare(b.cat,'ja');
+  });
   if(state.ui.favOnly)list=list.filter(r=>r.favorite);
   document.getElementById('recipeCount').textContent=`${state.recipes.length}件`;
-  document.getElementById('recipeList').innerHTML=list.map(r=>`
+  document.getElementById('recipeList').innerHTML=list.map(r=>{
+    const stat=recipeStockStat(r,exp);
+    return`
     <div class="card">
       <div class="row">
         <button class="icon-btn" onclick="toggleFav('${r.id}')" aria-label="お気に入り">${r.favorite?'⭐':'☆'}</button>
         <div class="grow">
-          <div class="name">${esc(r.name)}</div>
+          <div class="name">${esc(r.name)} <span class="chip loc" style="font-size:11px;padding:2px 7px">在庫${stat.hit}/全${stat.total}</span></div>
           <div class="meta">${r.cat} ・ ${r.time}分 ・ ${r.lastCooked?`最終調理 ${r.lastCooked}`:'未調理'} ${r.memo?'📝'+esc(r.memo):''}</div>
           <div class="meta">材料: ${r.ings.map(g=>esc(g.name)).join('、')}</div>
         </div>
@@ -1851,7 +1884,8 @@ function renderRecipes(){
       </div>
       <div class="meta" style="margin-top:6px">食べたい間隔: ${(r.freqDays||14)}日に1回</div>
       <div class="freq-seg">${FREQ_PRESETS.map(([label,days])=>`<button class="${(r.freqDays||14)===days?'on':''}" onclick="setFreqDays('${r.id}',${days})">${label}</button>`).join('')}</div>
-    </div>`).join('')||'<div class="empty">お気に入りのレシピがまだありません。⭐</div>';
+    </div>`;
+  }).join('')||'<div class="empty">お気に入りのレシピがまだありません。⭐</div>';
 }
 function toggleFav(id){const r=state.recipes.find(x=>x.id===id);r.favorite=!r.favorite;save();renderRecipes();}
 function setRating(id,n){const r=state.recipes.find(x=>x.id===id);r.rating=(r.rating===n)?0:n;save();renderRecipes();}
@@ -2262,21 +2296,64 @@ function initMicButtons(){
   if(!SR_CLASS)return;   // 非対応ブラウザは初期状態(非表示)のまま
   document.querySelectorAll('.mic-btn').forEach(b=>b.style.display='inline-flex');
 }
-// onDone(v1.9): 音声認識に成功しテキスト欄へ反映した直後に呼ばれる任意コールバック(単発提案フローの自動遷移用)
-function startDictation(inputId,btnEl,onDone){
-  if(!SR_CLASS){toast('このブラウザは音声入力に対応していません。下のテキスト欄に入力してください。');const input=document.getElementById(inputId);if(input)input.focus();return;}
+// v1.18: ホールド録音(push-to-talk)。#suggestMicBigBtn・#planWishMicBtnを押している間だけ認識ON、離すと停止して確定する。
+// holdRec等はモジュール内の一時状態(同時に2箇所を押す運用は想定しない、非永続)
+let holdRec=null,holdInputId=null,holdBtnEl=null,holdOnDone=null,holdOrigLabel=null,holdFinalText='';
+function micHoldStart(inputId,btnEl,onDone,ev){
+  if(ev&&ev.cancelable)ev.preventDefault();   // iOSでのスクロール/長押しメニュー誤爆を防ぐ
+  if(!SR_CLASS){
+    toast('このブラウザは音声入力に対応していません。下のテキスト欄に入力してください。');
+    const input=document.getElementById(inputId);if(input)input.focus();
+    return;
+  }
+  if(holdRec)return;   // 二重start防止(既に録音中)
+  holdInputId=inputId;holdBtnEl=btnEl;holdOnDone=onDone;holdFinalText='';
+  holdOrigLabel=btnEl.textContent;
+  btnEl.classList.add('rec-active');btnEl.textContent='🔴';
+  const hint=document.getElementById('suggestMicHint');
+  if(hint&&btnEl.id==='suggestMicBigBtn')hint.textContent='🔴 聞いています…離すと確定します';
   const rec=new SR_CLASS();
-  rec.lang='ja-JP';rec.interimResults=false;rec.maxAlternatives=1;
-  const orig=btnEl.textContent;
-  btnEl.disabled=true;btnEl.textContent='🎙️';
+  holdRec=rec;
+  rec.lang='ja-JP';rec.interimResults=true;rec.maxAlternatives=1;
   rec.onresult=e=>{
-    const text=e.results[0]&&e.results[0][0]&&e.results[0][0].transcript||'';
+    let text='';
+    for(let i=0;i<e.results.length;i++)text+=(e.results[i][0]&&e.results[i][0].transcript)||'';
+    holdFinalText=text;
     const input=document.getElementById(inputId);
-    if(input&&text){input.value=text;if(typeof onDone==='function')onDone(text);}
+    if(input)input.value=text;   // 押下中の途中経過をそのまま反映
   };
-  rec.onerror=()=>{toast('音声認識に失敗しました。');};
-  rec.onend=()=>{btnEl.disabled=false;btnEl.textContent=orig;};
-  try{rec.start();}catch(e){btnEl.disabled=false;btnEl.textContent=orig;}
+  rec.onerror=()=>{};   // 途中のエラーはonendの確定処理に任せる(押下中の体験をトーストで妨げない)
+  rec.onend=()=>{
+    const input=document.getElementById(holdInputId);
+    const done=holdOnDone,text=holdFinalText;
+    if(holdBtnEl){holdBtnEl.classList.remove('rec-active');holdBtnEl.textContent=holdOrigLabel;}
+    if(hint&&btnEl.id==='suggestMicBigBtn')hint.textContent='';
+    holdRec=null;holdBtnEl=null;holdInputId=null;holdOnDone=null;holdOrigLabel=null;holdFinalText='';
+    if(input&&text){input.value=text;if(typeof done==='function')done(text);}
+  };
+  try{rec.start();}catch(e){
+    btnEl.classList.remove('rec-active');btnEl.textContent=holdOrigLabel;
+    if(hint&&btnEl.id==='suggestMicBigBtn')hint.textContent='';
+    holdRec=null;holdBtnEl=null;holdInputId=null;holdOnDone=null;holdOrigLabel=null;holdFinalText='';
+  }
+}
+function micHoldEnd(ev){
+  if(ev&&ev.cancelable)ev.preventDefault();
+  if(!holdRec)return;
+  try{holdRec.stop();}catch(e){}
+}
+function initHoldMicButtons(){
+  const targets=[
+    {id:'suggestMicBigBtn',inputId:'wishInput',onDone:()=>suggestGoConfirm()},
+    {id:'planWishMicBtn',inputId:'planWishInput',onDone:null}
+  ];
+  targets.forEach(t=>{
+    const btn=document.getElementById(t.id);
+    if(!btn)return;
+    btn.addEventListener('mousedown',ev=>micHoldStart(t.inputId,btn,t.onDone,ev));
+    btn.addEventListener('touchstart',ev=>micHoldStart(t.inputId,btn,t.onDone,ev),{passive:false});
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt=>btn.addEventListener(evt,micHoldEnd));
+  });
 }
 
 /* ============ レシピ詳細(作り方)ビュー ============ */
@@ -2813,6 +2890,7 @@ function initPlanUI(){
 renderAll();
 initPlanUI();
 initMicButtons();
+initHoldMicButtons();
 renderSyncUI();
 maybeShowTutorial();
 if(syncCfg.enabled)pull();
