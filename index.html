@@ -1347,6 +1347,7 @@ async function callGemini(contents,generationConfig){
   return await res.json();
 }
 const OCR_GENRES=['野菜','肉','魚','乳製品','主食','調味料','飲料','菓子','日用品','その他'];
+const OCR_STOCK_GENRES=['野菜','肉','魚','乳製品','主食'];   // v1.16: 既定で「在庫に追加する」側に振り分けるジャンル。それ以外(調味料/飲料/菓子/日用品/その他)は既定で「追加しない」側
 function ocrPrompt(){
   const today=new Date().toISOString().slice(0,10);
   return`日本のスーパーのレシート画像から全品目を抽出(食材だけでなく日用品なども含め、値引き行・小計・合計行は品目として含めない)。name=一般的な名称に正規化(例:「国産若鶏ﾓﾓ」→「鶏もも肉」)、qty=数量(不明なら1)、unit=個/g/本/袋等の推定、price=税込価格(円・不明ならnull)、expiryGuess=今日(${today})を基準にした賞味期限の推定 YYYY-MM-DD(生鮮3日/肉魚3日/乳製品7日/常温品1ヶ月目安、食品以外や不明ならnull)、location=冷蔵/冷凍/常温の推定、genre=${OCR_GENRES.join('/')}のいずれか1つ。total=レシート全体の合計金額(円・読み取れなければnull、品目ごとではなく1つだけ)。`;
@@ -1390,7 +1391,7 @@ function openOcrModal(items,total,receiptId){
     // v1.14: Geminiのexpiryguessがあれば優先、無ければ食材ごとの賞味期限デフォルトを初期値にする
     const expiry=/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:defaultExpiry(name,location);
     return{
-      idx:i,checked:(genre!=='日用品'&&genre!=='その他'),
+      idx:i,checked:OCR_STOCK_GENRES.includes(genre),   // v1.16: 野菜/肉/魚/乳製品/主食のみ既定で在庫に追加する側
       name,
       qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
       unit:it.unit?String(it.unit):'個',
@@ -1409,10 +1410,10 @@ function renderOcrModal(){
     return;
   }
   document.getElementById('ocrAddBtn').style.display='';
-  box.innerHTML=ocrItems.map(it=>`
+  const renderOcrItem=it=>`
     <div class="ocr-item">
       <div class="row">
-        <input type="checkbox" ${it.checked?'checked':''} onchange="ocrItems[${it.idx}].checked=this.checked;updateOcrAddBtn()" style="width:22px;height:22px;accent-color:var(--green);flex-shrink:0">
+        <input type="checkbox" ${it.checked?'checked':''} onchange="ocrItems[${it.idx}].checked=this.checked;renderOcrModal()" style="width:22px;height:22px;accent-color:var(--green);flex-shrink:0">
         <input type="text" class="grow" value="${esc(it.name)}" oninput="ocrItems[${it.idx}].name=this.value" placeholder="食材名">
         ${it.price!=null?`<span class="meta" style="white-space:nowrap">¥${it.price}</span>`:''}
       </div>
@@ -1431,7 +1432,15 @@ function renderOcrModal(){
         </select>
         <input type="date" value="${it.expiry||''}" onchange="ocrItems[${it.idx}].expiry=this.value||null">
       </div>
-    </div>`).join('');
+    </div>`;
+  // v1.16: 在庫に追加する/しないの2セクションに分割表示。チェックのトグルで所属セクションが入れ替わる(食材⇄非食材どちらの向きの移動も可能)
+  const stockItems=ocrItems.filter(it=>it.checked);
+  const skipItems=ocrItems.filter(it=>!it.checked);
+  box.innerHTML=
+    `<div class="meta" style="margin:2px 2px 6px;font-weight:800;color:var(--green)">🧊 在庫に追加する</div>`+
+    (stockItems.length?stockItems.map(renderOcrItem).join(''):'<div class="empty">在庫に追加する品目はありません。下のチェックを入れて移動できます。</div>')+
+    `<div class="meta" style="margin:16px 2px 6px;font-weight:800;color:var(--sub)">🚫 在庫に追加しない(調味料・日用品など)</div>`+
+    (skipItems.length?skipItems.map(renderOcrItem).join(''):'<div class="empty">追加しない品目はありません。</div>');
   updateOcrAddBtn();
 }
 function updateOcrAddBtn(){
@@ -1703,7 +1712,10 @@ function renderSuggestion(){
     const miss=missingIngs(r);
     return`<div class="menu-slot">
       <div class="role">${r.cat} ・ 約${r.time}分</div>
-      <div class="dish" style="cursor:pointer;border-bottom:1.5px dotted var(--green);display:inline-block" onclick="viewRecipe('${r.id}')">${esc(r.name)} ${r.favorite?'⭐':''} <span style="font-size:11px;color:var(--sub);font-weight:500">▸作り方</span></div>
+      <div class="dish">${esc(r.name)} ${r.favorite?'⭐':''}</div>
+      <div class="btn-row" style="margin:0 0 6px">
+        <button class="btn small sub" onclick="viewRecipe('${r.id}')">📖 作り方を見る ▶</button>
+      </div>
       <div class="ing-list">${ingChips(r)}</div>
       ${miss.length?`<div class="meta" style="margin-top:4px">足りない: ${miss.map(m=>esc(m.name)).join('、')}</div>`:'<div class="meta" style="margin-top:4px;color:var(--green)">全部在庫でまかなえます。🎉</div>'}
       <div style="margin-top:6px" class="btn-row" style="margin:6px 0 0">
@@ -1747,12 +1759,15 @@ function renderRecipes(){
       <div class="row">
         <button class="icon-btn" onclick="toggleFav('${r.id}')" aria-label="お気に入り">${r.favorite?'⭐':'☆'}</button>
         <div class="grow">
-          <div class="name" style="cursor:pointer" onclick="viewRecipe('${r.id}')">${esc(r.name)} <span style="font-size:11px;color:var(--green);font-weight:700">▸作り方</span></div>
+          <div class="name">${esc(r.name)}</div>
           <div class="meta">${r.cat} ・ ${r.time}分 ・ ${r.lastCooked?`最終調理 ${r.lastCooked}`:'未調理'} ${r.memo?'📝'+esc(r.memo):''}</div>
           <div class="meta">材料: ${r.ings.map(g=>esc(g.name)).join('、')}</div>
         </div>
         <button class="icon-btn" onclick="editRecipe('${r.id}')">✏️</button>
         ${r.seed?'':`<button class="icon-btn" onclick="delRecipe('${r.id}')">🗑</button>`}
+      </div>
+      <div class="btn-row" style="margin:6px 0">
+        <button class="btn small sub" onclick="viewRecipe('${r.id}')">📖 作り方を見る ▶</button>
       </div>
       <div class="row" style="gap:4px">
         <span class="stars">${[1,2,3,4,5].map(n=>`<button onclick="setRating('${r.id}',${n})">${n<=r.rating?'★':'☆'}</button>`).join('')}</span>
@@ -2498,7 +2513,8 @@ function renderPlan(){
           <div class="meta" style="font-weight:800">${m}</div>
           ${day.meals[m].map(id=>{const r=state.recipes.find(x=>x.id===id);if(!r)return'';
             return`<div style="padding:3px 0 6px">
-              <div style="cursor:pointer" onclick="viewRecipe('${r.id}')"><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b> <span style="font-size:11px;color:var(--sub)">▸作り方</span></div>
+              <div><span class="chip loc">${r.cat}</span> <b>${esc(r.name)}</b></div>
+              <div class="btn-row" style="margin:4px 0 0"><button class="btn small sub" onclick="viewRecipe('${r.id}')">📖 作り方を見る ▶</button></div>
               <div class="ing-list" style="margin-top:4px">${ingChips(r)}</div>
             </div>`;}).join('')}
         </div>`).join('');
