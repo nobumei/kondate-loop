@@ -72,3 +72,4 @@
 - 外部API: `searchLinks()` を差し替え(現在はクラシル/DELISH KITCHENのサイト内検索へ直リンク)
 - 家族共有: `save()/load()` をリモート同期版に差し替え(スキーマは維持)
 - 2026-07-13: 家族同期のSupabaseはRLS無効で匿名から全読み書き可の状態だった。householdsを直接アクセス禁止(RLS)にし、あいことばの1行だけ読み書きするSECURITY DEFINER RPC(household_pull/push)経由に変更。publishable keyは公開前提のため防御線はRLSのみという前提を明文化。
+- 2026-07-16: 定番レシピをGemini生成で拡充。SEED_RECIPESを18→94種(主菜53/副菜24/汁物17、和洋中+朝食)に。提案のワンパターン解消のため。生成はEdge Function経由でオフライン実行し検証後にベイク。
