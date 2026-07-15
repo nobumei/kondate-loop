@@ -814,6 +814,16 @@ function migrate(st){
   }
   if(!Array.isArray(st.history))st.history=[];                  // v1.6: 献立履歴カレンダー
   if(!Array.isArray(st.deals))st.deals=[];                       // v1.8: チラシ特売
+  // v1.18: 拡充した定番レシピ(SEED)を既存ユーザーにも補充。既に同id/同名があるものは追加しない(ユーザー編集を尊重)
+  if(Array.isArray(st.recipes)){
+    const haveIds=new Set(st.recipes.map(r=>r.id));
+    const haveNames=new Set(st.recipes.map(r=>String(r.name||'').trim()));
+    SEED_RECIPES.forEach(seed=>{
+      if(!haveIds.has(seed.id)&&!haveNames.has(String(seed.name||'').trim())){
+        st.recipes.push(JSON.parse(JSON.stringify(seed)));      // 共有参照を避けるためクローンして追加
+      }
+    });
+  }
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
