@@ -167,6 +167,9 @@ h2 .count{font-size:12px;color:var(--sub);font-weight:700;background:var(--count
 .field input:focus,.field select:focus,.field textarea:focus{outline:2.5px solid var(--green);outline-offset:-1px;border-color:transparent}
 .field-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}
 .field-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dict-row .shelf-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--sub)}
+.dict-row .shelf-row input{width:52px;border:1.5px solid var(--line);border-radius:8px;padding:6px;background:#fff;color:var(--ink);font-size:13px;text-align:center}
+.dict-row .badge{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--chip-loc-bg);color:var(--sub);margin-right:5px}
 .modal-bg{position:fixed;inset:0;background:var(--scrim);z-index:40;display:none;align-items:flex-end;justify-content:center}
 .modal-bg.open{display:flex}
 .modal{background:var(--card);border-radius:26px 26px 0 0;width:100%;max-width:760px;max-height:88vh;overflow-y:auto;padding:12px 18px calc(20px + env(safe-area-inset-bottom))}
@@ -619,14 +622,20 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
 <!-- 食材辞書モーダル -->
 <div class="modal-bg" id="dictModal">
   <div class="modal">
-    <h3>📝 食材辞書</h3>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin-bottom:0">📝 食材辞書</h3>
+      <button class="icon-btn" style="font-size:22px;font-weight:900;line-height:1" onclick="toggleDictAddForm()" aria-label="別名を追加">＋</button>
+    </div>
+    <div id="dictAddForm" style="display:none;margin-top:10px">
+      <div class="field field-grid2">
+        <div><label style="font-size:12px;font-weight:700;color:var(--sub)">別名</label><input id="dict-alias" placeholder="例: 玉葱"></div>
+        <div><label style="font-size:12px;font-weight:700;color:var(--sub)">正規名</label><input id="dict-canon" placeholder="例: 玉ねぎ"></div>
+      </div>
+      <div class="btn-row"><button class="btn wide" onclick="addDictEntry()">追加する</button></div>
+    </div>
+    <div class="field" style="margin-top:12px;margin-bottom:6px"><input id="dict-search" placeholder="🔍 食材名で絞り込み" oninput="renderDictList()"></div>
     <p class="meta" id="dictBuiltinInfo" style="margin-bottom:10px"></p>
     <div id="dictUserList"></div>
-    <div class="field field-grid2">
-      <div><label style="font-size:12px;font-weight:700;color:var(--sub)">別名</label><input id="dict-alias" placeholder="例: 玉葱"></div>
-      <div><label style="font-size:12px;font-weight:700;color:var(--sub)">正規名</label><input id="dict-canon" placeholder="例: 玉ねぎ"></div>
-    </div>
-    <div class="btn-row"><button class="btn wide" onclick="addDictEntry()">追加する</button></div>
     <button class="btn ghost wide" onclick="closeModal('dictModal')">閉じる</button>
   </div>
 </div>
@@ -681,7 +690,7 @@ const SEED_RECIPES=[
 
 function defaultState(){return{
   inventory:[],recipes:SEED_RECIPES,shopping:[],receipts:[],deals:[],
-  settings:{shoppingDays:[],shoppingLog:[],stores:[],normDict:{}},
+  settings:{shoppingDays:[],shoppingLog:[],stores:[],normDict:{},shelfLife:{}},
   current:null, plan:null, history:[], ui:{locFilter:'all',favOnly:false}
 };}
 let state=load();
@@ -699,6 +708,7 @@ function migrate(st){
     if(r.freqDays==null)r.freqDays=r.freq==='よく'?7:r.freq==='あまり'?90:14;  // v1.2以前のfreqから変換
   });
   if(!st.settings.normDict||typeof st.settings.normDict!=='object')st.settings.normDict={};  // v1.5: 食材名の正規化辞書
+  if(!st.settings.shelfLife||typeof st.settings.shelfLife!=='object')st.settings.shelfLife={};  // v1.14: 食材ごとの賞味期限デフォルト(ユーザー上書き)
   if(st.plan&&Array.isArray(st.plan.days)){                     // v1.6: days[].ids → days[].meals.夜
     st.plan.days.forEach(day=>{
       if(!day.meals){day.meals={'夜':day.ids||[]};delete day.ids;}
@@ -885,19 +895,104 @@ function normalizeName(s){
   if(userDict[s])s=userDict[s];
   return s;
 }
+// 「canonical(正規名)→別名配列」への逆引き。BUILTIN_NORM_DICTのデータ構造は変えず、表示用にコードで生成する
+function invertBuiltinDict(){
+  const m={};
+  Object.entries(BUILTIN_NORM_DICT).forEach(([alias,canon])=>{(m[canon]=m[canon]||[]).push(alias);});
+  return m;
+}
+const BUILTIN_CANON_MAP=invertBuiltinDict();  // 正規名(63件) → 組み込み別名配列
+
+/* ============ 食材ごとの賞味期限デフォルト (v1.14で追加) ============ */
+// 一般的な家庭食材の目安(日数)。冷凍は冷蔵より大幅に長く持つ想定。null=通常その保存方法をしない
+const BUILTIN_SHELF_LIFE={
+  /* 野菜(根菜・日持ちする野菜) */
+  'たまねぎ':{冷蔵:14,冷凍:60,常温:14},'にんじん':{冷蔵:14,冷凍:60,常温:14},'じゃがいも':{冷蔵:14,冷凍:60,常温:14},
+  'だいこん':{冷蔵:14,冷凍:60,常温:14},'ごぼう':{冷蔵:14,冷凍:60,常温:14},'れんこん':{冷蔵:14,冷凍:60,常温:14},
+  'さつまいも':{冷蔵:14,冷凍:60,常温:14},'ながいも':{冷蔵:14,冷凍:60,常温:14},'さといも':{冷蔵:14,冷凍:60,常温:14},
+  'かぶ':{冷蔵:10,冷凍:30,常温:null},
+  'にんにく':{冷蔵:21,冷凍:60,常温:30},'しょうが':{冷蔵:21,冷凍:60,常温:14},'みょうが':{冷蔵:7,冷凍:30,常温:null},
+  /* 野菜(葉物・傷みやすい) */
+  'はくさい':{冷蔵:7,冷凍:30,常温:null},'ほうれんそう':{冷蔵:5,冷凍:30,常温:null},'こまつな':{冷蔵:5,冷凍:30,常温:null},
+  'みずな':{冷蔵:5,冷凍:30,常温:null},'ちんげんさい':{冷蔵:5,冷凍:30,常温:null},'しそ':{冷蔵:5,冷凍:30,常温:null},
+  'みつば':{冷蔵:4,冷凍:30,常温:null},'ながねぎ':{冷蔵:10,冷凍:30,常温:null},'なす':{冷蔵:7,冷凍:30,常温:null},
+  'ししとう':{冷蔵:5,冷凍:30,常温:null},
+  /* 野菜(その他) */
+  'かぼちゃ':{冷蔵:14,冷凍:30,常温:30},'きゅうり':{冷蔵:7,冷凍:null,常温:null},'もやし':{冷蔵:3,冷凍:30,常温:null},
+  'アスパラガス':{冷蔵:5,冷凍:30,常温:null},'とうもろこし':{冷蔵:3,冷凍:30,常温:null},'いんげん':{冷蔵:5,冷凍:30,常温:null},
+  /* きのこ */
+  'しめじ':{冷蔵:7,冷凍:30,常温:null},'えのき':{冷蔵:7,冷凍:30,常温:null},'まいたけ':{冷蔵:7,冷凍:30,常温:null},'しいたけ':{冷蔵:7,冷凍:30,常温:null},
+  /* 肉 */
+  '鶏もも肉':{冷蔵:3,冷凍:30,常温:null},'鶏むね肉':{冷蔵:3,冷凍:30,常温:null},'鶏ささみ':{冷蔵:3,冷凍:30,常温:null},
+  '豚こま切れ肉':{冷蔵:3,冷凍:30,常温:null},'豚バラ肉':{冷蔵:3,冷凍:30,常温:null},'豚ロース肉':{冷蔵:3,冷凍:30,常温:null},
+  '牛こま切れ肉':{冷蔵:3,冷凍:30,常温:null},'合いびき肉':{冷蔵:3,冷凍:30,常温:null},
+  /* 卵・大豆製品・乳製品 */
+  '卵':{冷蔵:14,冷凍:null,常温:null},'豆腐':{冷蔵:5,冷凍:null,常温:null},'油揚げ':{冷蔵:5,冷凍:30,常温:null},
+  '厚揚げ':{冷蔵:5,冷凍:30,常温:null},'納豆':{冷蔵:14,冷凍:30,常温:null},'しらす':{冷蔵:2,冷凍:30,常温:null},'牛乳':{冷蔵:5,冷凍:null,常温:null},
+  /* 海藻・乾物・練り物 */
+  'わかめ':{冷蔵:30,冷凍:null,常温:180},'ひじき':{冷蔵:30,冷凍:null,常温:180},'こんぶ':{冷蔵:60,冷凍:null,常温:180},
+  'ちくわ':{冷蔵:5,冷凍:30,常温:null},'かまぼこ':{冷蔵:5,冷凍:30,常温:null},'こんにゃく':{冷蔵:14,冷凍:60,常温:null},'しらたき':{冷蔵:14,冷凍:60,常温:null},
+  /* 調味料 */
+  'しょうゆ':{冷蔵:180,冷凍:null,常温:180},'みりん':{冷蔵:null,冷凍:null,常温:180},'さとう':{冷蔵:null,冷凍:null,常温:365},
+  'しお':{冷蔵:null,冷凍:null,常温:365},'こしょう':{冷蔵:null,冷凍:null,常温:365},'みそ':{冷蔵:180,冷凍:null,常温:90},
+  'だし':{冷蔵:null,冷凍:null,常温:180},'ごま油':{冷蔵:null,冷凍:null,常温:180},
+};
+const SHELF_LIFE_FALLBACK={冷蔵:7,冷凍:30,常温:30};  // 辞書に無い食材の全体フォールバック
+function shelfLifeDays(canonical,location){
+  const u=(state.settings.shelfLife||{})[canonical];
+  if(u&&u[location]!=null&&u[location]!=='')return Number(u[location]);
+  const b=BUILTIN_SHELF_LIFE[canonical];
+  if(b&&b[location]!=null)return b[location];
+  return SHELF_LIFE_FALLBACK[location]||30;
+}
+function defaultExpiry(name,location){
+  const days=shelfLifeDays(normalizeName(name),location);
+  const d=new Date();d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10);
+}
 function openDictModal(){
-  document.getElementById('dictBuiltinInfo').textContent=`標準で${Object.keys(BUILTIN_NORM_DICT).length}組登録済み`;
+  document.getElementById('dict-search').value='';
+  document.getElementById('dictAddForm').style.display='none';
   document.getElementById('dict-alias').value='';document.getElementById('dict-canon').value='';
   renderDictList();
   openModal('dictModal');
 }
+function toggleDictAddForm(){
+  const f=document.getElementById('dictAddForm');
+  f.style.display=f.style.display==='none'?'':'none';
+  if(f.style.display!=='none')setTimeout(()=>document.getElementById('dict-alias').focus(),100);
+}
 function renderDictList(){
-  const entries=Object.entries(state.settings.normDict||{});
-  document.getElementById('dictUserList').innerHTML=entries.length?entries.map(([alias,canon],i)=>`
-    <div class="card row">
-      <div class="grow"><span class="name">${esc(alias)} → ${esc(canon)}</span></div>
-      <button class="icon-btn" onclick="delDictEntry(${i})" aria-label="削除">🗑</button>
-    </div>`).join(''):'<div class="empty">登録した別名はまだありません。</div>';
+  const q=(document.getElementById('dict-search').value||'').trim();
+  const userDict=state.settings.normDict||{};
+  const userMap={};
+  Object.entries(userDict).forEach(([alias,canon])=>{(userMap[canon]=userMap[canon]||[]).push(alias);});
+  const canonSet=new Set([...Object.keys(BUILTIN_CANON_MAP),...Object.keys(userMap)]);
+  let list=[...canonSet].sort((a,b)=>a.localeCompare(b,'ja'));
+  if(q)list=list.filter(c=>c.includes(q)||(BUILTIN_CANON_MAP[c]||[]).some(a=>a.includes(q))||(userMap[c]||[]).some(a=>a.includes(q)));
+  document.getElementById('dictBuiltinInfo').textContent=`${list.length}/${canonSet.size}食材(組み込み${Object.keys(BUILTIN_CANON_MAP).length} + ユーザー登録分)を表示`;
+  document.getElementById('dictUserList').innerHTML=list.length?list.map(c=>dictRowHTML(c,BUILTIN_CANON_MAP[c]||[],userMap[c]||[])).join(''):'<div class="empty">該当する食材が見つかりません。</div>';
+}
+function dictRowHTML(canon,builtinAliases,userAliases){
+  const val=loc=>{const d=shelfLifeDays(canon,loc);return d==null?'':d;};
+  return`<div class="card dict-row">
+    <div class="name">${esc(canon)}</div>
+    ${builtinAliases.length?`<div class="meta"><span class="badge">組込み</span>${builtinAliases.map(esc).join('、')}</div>`:''}
+    ${userAliases.length?`<div class="meta"><span class="badge">ユーザー</span>${userAliases.map(a=>`${esc(a)} <button class="icon-btn" style="padding:2px 5px;font-size:13px" onclick="delDictEntry('${esc(a)}')" aria-label="削除">🗑</button>`).join(' ')}</div>`:''}
+    <div class="shelf-row">
+      <span>冷蔵</span><input type="number" min="0" value="${val('冷蔵')}" onchange="setShelfLife('${esc(canon)}','冷蔵',this.value)"><span>日</span>
+      <span>冷凍</span><input type="number" min="0" value="${val('冷凍')}" onchange="setShelfLife('${esc(canon)}','冷凍',this.value)"><span>日</span>
+      <span>常温</span><input type="number" min="0" value="${val('常温')}" onchange="setShelfLife('${esc(canon)}','常温',this.value)"><span>日</span>
+    </div>
+  </div>`;
+}
+function setShelfLife(canon,loc,val){
+  const n=val===''?NaN:parseInt(val,10);
+  if(!state.settings.shelfLife[canon])state.settings.shelfLife[canon]={};
+  if(isNaN(n)||n<0)delete state.settings.shelfLife[canon][loc];
+  else state.settings.shelfLife[canon][loc]=n;
+  if(!Object.keys(state.settings.shelfLife[canon]).length)delete state.settings.shelfLife[canon];
+  save();
 }
 function addDictEntry(){
   const alias=document.getElementById('dict-alias').value.trim();
@@ -909,10 +1004,9 @@ function addDictEntry(){
   document.getElementById('dict-alias').value='';document.getElementById('dict-canon').value='';
   toast(`「${alias}」→「${canon}」を登録しました。`);
 }
-function delDictEntry(i){
-  const entries=Object.entries(state.settings.normDict||{});
-  if(!entries[i])return;
-  delete state.settings.normDict[entries[i][0]];
+function delDictEntry(alias){
+  if(!Object.prototype.hasOwnProperty.call(state.settings.normDict||{},alias))return;
+  delete state.settings.normDict[alias];
   save();renderDictList();
 }
 
@@ -972,14 +1066,18 @@ function editStock(id){
   openModal('stockModal');
 }
 function saveStock(){
-  const name=document.getElementById('f-name').value.trim();
-  if(!name){toast('食材名を入力してください。');return;}
+  const rawName=document.getElementById('f-name').value.trim();
+  if(!rawName){toast('食材名を入力してください。');return;}
+  const name=normalizeName(rawName);   // v1.14: 手動追加もnormalizeName()を通して保存(卵/たまご/玉子等の表記ゆれを統一)
   const id=document.getElementById('f-id').value;
+  const location=document.getElementById('f-loc').value;
+  const expInput=document.getElementById('f-exp').value;
   const data={name,qty:parseFloat(document.getElementById('f-qty').value)||1,
     unit:document.getElementById('f-unit').value.trim()||'個',
-    location:document.getElementById('f-loc').value,
-    expiry:document.getElementById('f-exp').value||null,
+    location,
+    expiry:expInput||defaultExpiry(name,location),  // v1.14: 未入力なら賞味期限デフォルトを自動セット
     memo:document.getElementById('f-memo').value.trim()};
+  stockOverride.delete(name);   // 在庫の実変更に合わせて手動補正の古い上書きをクリア
   if(id){Object.assign(state.inventory.find(x=>x.id===id),data);}
   else{state.inventory.push({id:uid(),addedAt:new Date().toISOString().slice(0,10),...data});}
   save();renderStock();closeModal('stockModal');toast(`「${name}」を保存しました。🧊`);
@@ -987,6 +1085,7 @@ function saveStock(){
 function delStock(id){
   const it=state.inventory.find(x=>x.id===id);
   if(!confirm(`「${it.name}」を在庫から削除する?`))return;
+  stockOverride.delete(normalizeName(it.name));
   state.inventory=state.inventory.filter(x=>x.id!==id);save();renderStock();
 }
 
@@ -1141,15 +1240,17 @@ function openOcrModal(items,total,receiptId){
   ocrTotal=(typeof total==='number')?total:null;
   ocrItems=(items||[]).filter(it=>it&&it.name).map((it,i)=>{
     const genre=OCR_GENRES.includes(it.genre)?it.genre:'その他';
+    const name=normalizeName(String(it.name));
+    const location=['冷蔵','冷凍','常温'].includes(it.location)?it.location:'冷蔵';
+    // v1.14: Geminiのexpiryguessがあれば優先、無ければ食材ごとの賞味期限デフォルトを初期値にする
+    const expiry=/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:defaultExpiry(name,location);
     return{
       idx:i,checked:(genre!=='日用品'&&genre!=='その他'),
-      name:normalizeName(String(it.name)),
+      name,
       qty:(typeof it.qty==='number'&&it.qty>0)?it.qty:1,
       unit:it.unit?String(it.unit):'個',
       price:(typeof it.price==='number')?it.price:null,
-      location:['冷蔵','冷凍','常温'].includes(it.location)?it.location:'冷蔵',
-      expiry:/^\d{4}-\d{2}-\d{2}$/.test(it.expiryGuess||'')?it.expiryGuess:null,
-      genre
+      location,expiry,genre
     };
   });
   renderOcrModal();
@@ -1197,14 +1298,18 @@ function addOcrItemsToStock(){
   if(!ocrItems.length)return;
   const checked=ocrItems.filter(it=>it.checked&&it.name.trim());
   const today=new Date().toISOString().slice(0,10);
-  checked.forEach(it=>state.inventory.push({
-    id:uid(),name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',
-    location:it.location,expiry:it.expiry||null,addedAt:today,memo:''
-  }));
+  checked.forEach(it=>{
+    const name=normalizeName(it.name.trim());   // v1.14: モーダル内での手動編集分も保存前に再度normalize
+    stockOverride.delete(name);
+    state.inventory.push({
+      id:uid(),name,qty:it.qty||1,unit:(it.unit||'個').trim()||'個',
+      location:it.location,expiry:it.expiry||defaultExpiry(name,it.location),addedAt:today,memo:''
+    });
+  });
   if(ocrReceiptId){
     const r=state.receipts.find(x=>x.id===ocrReceiptId);
     if(r){
-      r.items=ocrItems.filter(it=>it.name.trim()).map(it=>({name:it.name.trim(),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',price:it.price,genre:it.genre}));
+      r.items=ocrItems.filter(it=>it.name.trim()).map(it=>({name:normalizeName(it.name.trim()),qty:it.qty||1,unit:(it.unit||'個').trim()||'個',price:it.price,genre:it.genre}));
       r.total=ocrTotal;
     }
   }
@@ -1216,7 +1321,13 @@ function addOcrItemsToStock(){
 function stockNames(){return state.inventory.map(i=>i.name);}
 function inStock(ingName){
   const n=normalizeName(ingName);
-  return state.inventory.some(i=>{const a=normalizeName(i.name);return a.includes(n)||n.includes(a);});
+  return state.inventory.some(i=>{
+    const a=normalizeName(i.name);
+    if(a===n)return true;             // 完全一致を最優先
+    if(n.includes(a))return true;     // 材料名(長い)が在庫名(短くてもOK)を含む: 例)在庫「卵」⊂ 材料「溶き卵」
+    if(n.length<=2)return false;      // 材料名自体が短い(例:塩/だし)場合は在庫名への部分一致で誤爆しやすいので許可しない(例:「塩」⊂「しおから」)
+    return a.includes(n);             // 在庫名(長い)が材料名を含む: 例)在庫「鶏もも肉」⊃ 材料「鶏もも」
+  });
 }
 // 提案画面での手動補正(◯⇄✗)。提案セッション中のみ有効な一時的な上書きで、保存はしない
 let stockOverride=new Map();
@@ -1700,10 +1811,14 @@ function checkedToStock(){
   const done=state.shopping.filter(i=>i.checked);
   if(!done.length){toast('選択した品がありません。');return;}
   const today=new Date().toISOString().slice(0,10);
-  done.forEach(i=>state.inventory.push({id:uid(),name:normalizeName(i.name),qty:i.qty||1,unit:i.unit||'個',location:'冷蔵',expiry:null,addedAt:today,memo:''}));
+  done.forEach(i=>{
+    const name=normalizeName(i.name);
+    stockOverride.delete(name);
+    state.inventory.push({id:uid(),name,qty:i.qty||1,unit:i.unit||'個',location:'冷蔵',expiry:defaultExpiry(name,'冷蔵'),addedAt:today,memo:''});
+  });
   state.shopping=state.shopping.filter(i=>!i.checked);
   save();renderShopping();renderStock();
-  toast(`${done.length}品を在庫に追加しました。📥 期限は在庫タブで設定してください。`);
+  toast(`${done.length}品を在庫に追加しました。📥 期限は自動設定されています(在庫タブで調整可)。`);
 }
 function openShopAdd(){
   ['s-name','s-memo'].forEach(i=>document.getElementById(i).value='');

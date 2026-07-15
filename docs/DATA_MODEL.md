@@ -89,6 +89,7 @@ interface Settings {
   shoppingLog: string[];    // v1.10で非推奨: 設定タブの「買い物記録」UIを削除したためもう書き込まれない。既存データ・エクスポート/インポート・migrateとの互換のためフィールド自体とdefaultStateの初期化は残す
   stores: { name: string; url: string; memo: string }[];
   normDict: Record<string,string>;  // v1.5: 食材名の正規化辞書(別名→正規名)。ユーザー登録分のみ。家族同期対象
+  shelfLife: Record<string, Partial<Record<'冷蔵'|'冷凍'|'常温', number>>>;  // v1.14: 食材ごとの賞味期限デフォルトのユーザー上書き(canonical正規名→保存場所別の日数)。家族同期対象
 }
 ```
 
@@ -130,6 +131,15 @@ interface SyncConfig {
 - `inStock()` は両辺(在庫名・材料名)を `normalizeName()` してから部分一致判定する。保存済みデータ自体は書き換えない(非破壊)。既存データが漢字で保存済みでも、両辺とも正規化されるためマッチングは壊れない。
 - レシートOCR結果(`openOcrModal`)の食材名にも初期値として適用する(モーダル上で編集可能)。
 - ユーザー登録分は `state.settings.normDict` に載るため、家族同期・エクスポートJSONの対象に含まれる。
+- v1.14: 在庫に追加する全経路(手動追加`saveStock`・レシートOCR確認モーダル`addOcrItemsToStock`・チラシ/レシートOCRの初期値`openOcrModal`・買い物→在庫`checkedToStock`)で保存名を`normalizeName()`で正規化して統一した(手動追加のみ従来未正規化だった)。既存の未正規化データは`inStock()`側が両辺を都度normalizeするため後方互換で壊れない。
+- v1.14: `inStock()`は完全一致(`a===n`)を最優先判定し、次に「材料名(長い)が在庫名を含む」場合(例: 在庫「卵」⊂材料「溶き卵」)を許可、材料名(`n`)が2文字以下の短い正規名(卵/塩/だし等)の場合は「在庫名が材料名を含む」逆方向の部分一致を禁止する(例: 材料「塩」が在庫「しおから」に誤マッチしない)。長い正規名同士は従来どおり双方向の部分一致を維持。
+
+## 食材ごとの賞味期限デフォルト (v1.14で追加)
+
+- `BUILTIN_SHELF_LIFE`(コード内定数): `BUILTIN_NORM_DICT`の全canonical(63食材)を対象に、`{冷蔵:日数|null, 冷凍:日数|null, 常温:日数|null}`の一般的な家庭保存目安を収録。冷凍は冷蔵より大幅に長い日数を設定する方針(例: 生鮮肉は冷蔵3日/冷凍30日)。`null`はその保存方法を通常しない食材(例: 卵の冷凍、しょうゆの冷凍)を表す。
+- `state.settings.shelfLife`(ユーザー上書き): canonical正規名→`{冷蔵,冷凍,常温}`(値のあるキーのみ保持。空にするとcanonicalごと削除)。食材辞書モーダルの各行で編集できる。家族同期対象。
+- `shelfLifeDays(canonical, location)`: `state.settings.shelfLife`のユーザー上書き → `BUILTIN_SHELF_LIFE` → 全体フォールバック(`SHELF_LIFE_FALLBACK` = 冷蔵7/冷凍30/常温30)の順で日数を返す。
+- `defaultExpiry(name, location)`: `today + shelfLifeDays(normalizeName(name), location)`の日付文字列を返す。在庫追加時に期限が未指定(空)の場合、この関数の返り値を自動セットする(手動追加は期限を空にした場合のみ自動、入力した場合はその値を尊重)。レシートOCR確認モーダルの期限初期値は、Geminiの`expiryGuess`があればそれを優先し、無ければこの関数の値を使う。
 
 ## 在庫チップの手動補正 (v1.6で追加)
 - 提案画面(単発・まとめ両方)の材料は `effectiveHas(name)` で表示する。`inStock()` の結果をグローバル変数 `stockOverride`(`Map`、正規化名→boolean)で上書きできる、提案セッション中のみの一時的な補正。
@@ -158,6 +168,7 @@ interface SyncConfig {
 | v1.11 | AppStateスキーマ変更なし。レシピOCR(Gemini)を追加: 本・Kindle・雑誌・手書きの画像から複数レシピ(名前/カテゴリ/調理時間/材料/作り方)を抽出→確認・編集モーダルでチェックした分だけseed:falseのRecipeとしてstate.recipesに追加(画像自体は保存しない)。searchLinks()をGoogle検索経由からクラシル/DELISH KITCHENのサイト内検索への直リンクに変更 | 2026-07-14 |
 | v1.12 | AppStateスキーマ変更なし。UI改修: 単発献立提案の結果画面に「🗑 クリア」ボタン追加(state.current=nullで入力画面に戻る)、買い物タブに一括操作バー追加(すべて選択/解除トグル・選択を在庫に追加・選択を削除)、BUILTIN_NORM_DICTをひらがな正規化方針で拡充(20組→128組・63食材)、UI文言「食材名の辞書」→「食材辞書」に変更(関数名・キー不変) | 2026-07-14 |
 | v1.13 | AppStateスキーマ変更なし。Geminiキーをクライアントから撤去しSupabase Edge Function(`supabase/functions/gemini/index.ts`、secret=GEMINI_API_KEY)経由の呼び出しに統一。設定タブのGemini APIキー入力カードを削除、`loadGeminiKey`/`saveGeminiKey`/`GEMINI_KEY_STORAGE`をindex.htmlから削除、共通ヘルパ`callGemini()`に4か所(レシートOCR/チラシOCR/献立生成/レシピOCR)の直fetchを統一。`kondate-loop-gemini`キーは非推奨(未使用・残置) | 2026-07-15 |
+| v1.14 | Settings.shelfLife追加、migrate()で`{}`補完(家族同期対象)。BUILTIN_SHELF_LIFE(食材ごとの賞味期限デフォルト、63食材)を新設。在庫追加の全経路(手動追加・OCR確認モーダル・買い物→在庫)で保存名をnormalizeName()で正規化するよう統一(手動追加が唯一未正規化だった)。inStock()に完全一致優先+短い正規名(2文字以下)の部分一致誤爆防止を追加。食材辞書モーダルを組み込み+ユーザーの全63正規名一覧+検索+賞味期限編集UIに刷新 | 2026-07-15 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
