@@ -374,7 +374,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
     <button class="btn small ghost" onclick="state.ui.favOnly=!state.ui.favOnly;renderRecipes()" id="favFilterBtn">⭐ お気に入りのみ</button>
   </div>
   <input type="file" id="recipeOcrFileInput" accept="image/*,.heic" style="display:none">
-  <p style="font-size:11.5px;color:var(--sub);margin:0 2px 4px">※ 画像は保存されません。読み取った内容を確認・編集してから追加します(設定タブでGemini APIキー登録が必要)。</p>
+  <p style="font-size:11.5px;color:var(--sub);margin:0 2px 4px">※ 画像は保存されません。読み取った内容を確認・編集してから追加します。</p>
   <div id="recipeList"></div>
 </section>
 
@@ -397,7 +397,7 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       📷 タップしてチラシの画像を選択
     </div>
     <input type="file" id="dealsFileInput" accept="image/*,.heic" style="display:none">
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 画像は保存されません。読み取った特売食材だけを確認してから取り込みます(設定タブでGemini APIキー登録が必要)。</p>
+    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 画像は保存されません。読み取った特売食材だけを確認してから取り込みます。</p>
   </div>
   <h2>🏷 特売中の食材 <span class="count" id="dealsCount"></span></h2>
   <div class="btn-row" id="dealsExpiredRow" style="display:none">
@@ -459,17 +459,6 @@ nav button.active .ico{transform:translateY(-1px) scale(1.08)}
       <button class="btn small" id="syncToggleBtn" onclick="toggleSync()">同期を開始</button>
     </div>
     <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ 同期されるのは在庫・レシピ・買い物リスト・設定です。レシート画像は端末内のみに保存されます。あいことばを知っている人は読み書きできるため、推測されにくい文字列を設定してください。</p>
-  </div>
-  <h2>🔍 レシートOCR(Gemini)</h2>
-  <div class="card">
-    <div class="field" style="margin-bottom:8px">
-      <label>Gemini APIキー</label>
-      <input id="gemini-key" type="password" placeholder="AIza..." autocomplete="off">
-    </div>
-    <div class="btn-row" style="margin:0">
-      <button class="btn small" onclick="saveGeminiKey()">保存する</button>
-    </div>
-    <p style="font-size:11.5px;color:var(--sub);margin-top:8px">※ キーはこの端末にのみ保存されます(家族同期・エクスポートには含まれません)。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">キーを取得する ↗</a></p>
   </div>
   <h2>💾 データ</h2>
   <div class="card">
@@ -1100,14 +1089,19 @@ function renderReceiptStats(){
 }
 
 /* ============ レシートOCR (Gemini) ============ */
-const GEMINI_KEY_STORAGE='kondate-loop-gemini';   // 端末ローカル専用。同期・エクスポート対象外
-function loadGeminiKey(){try{return localStorage.getItem(GEMINI_KEY_STORAGE)||'';}catch(e){return'';}}
-function saveGeminiKey(){
-  const k=document.getElementById('gemini-key').value.trim();
-  try{
-    if(k)localStorage.setItem(GEMINI_KEY_STORAGE,k);else localStorage.removeItem(GEMINI_KEY_STORAGE);
-  }catch(e){toast('キーの保存に失敗しました。');return;}
-  toast(k?'APIキーを保存しました。🔑':'APIキーを削除しました。');
+// Geminiキーはクライアントに置かず、Supabase Edge Function(secret)経由で呼び出す。
+async function callGemini(contents,generationConfig){
+  const res=await fetch(`${SYNC_URL}/functions/v1/gemini`,{
+    method:'POST',headers:syncHeaders(),
+    body:JSON.stringify({model:GEMINI_MODEL,contents,generationConfig})
+  });
+  if(!res.ok){
+    if(res.status===429)throw new Error('無料枠の上限に達しました。1分ほど待って再度お試しください。');
+    if(res.status===401||res.status===403)throw new Error('画像の読み取りに失敗しました(認証エラー)。時間をおいて再度お試しください。');
+    if(res.status===500)throw new Error('サーバー側の設定が未完了です。しばらくお待ちください。');
+    throw new Error(`通信エラーが発生しました(HTTP ${res.status})。`);
+  }
+  return await res.json();
 }
 const OCR_GENRES=['野菜','肉','魚','乳製品','主食','調味料','飲料','菓子','日用品','その他'];
 function ocrPrompt(){
@@ -1115,26 +1109,15 @@ function ocrPrompt(){
   return`日本のスーパーのレシート画像から全品目を抽出(食材だけでなく日用品なども含め、値引き行・小計・合計行は品目として含めない)。name=一般的な名称に正規化(例:「国産若鶏ﾓﾓ」→「鶏もも肉」)、qty=数量(不明なら1)、unit=個/g/本/袋等の推定、price=税込価格(円・不明ならnull)、expiryGuess=今日(${today})を基準にした賞味期限の推定 YYYY-MM-DD(生鮮3日/肉魚3日/乳製品7日/常温品1ヶ月目安、食品以外や不明ならnull)、location=冷蔵/冷凍/常温の推定、genre=${OCR_GENRES.join('/')}のいずれか1つ。total=レシート全体の合計金額(円・読み取れなければnull、品目ごとではなく1つだけ)。`;
 }
 async function runOcr(id){
-  const key=loadGeminiKey();
-  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
   const r=state.receipts.find(x=>x.id===id);if(!r)return;
   const btn=document.getElementById('ocr-btn-'+id);
   if(btn){btn.disabled=true;btn.textContent='⏳読み取り中…';}
   try{
     const base64=(r.dataUrl.split(',')[1])||'';
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:ocrPrompt()}]}],
-        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{items:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER'},unit:{type:'STRING'},price:{type:'NUMBER',nullable:true},expiryGuess:{type:'STRING',nullable:true},location:{type:'STRING'},genre:{type:'STRING'}},required:['name','qty','unit','genre']}},total:{type:'NUMBER',nullable:true}},required:['items']}}
-      })
-    });
-    if(!res.ok){
-      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
-      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
-      throw new Error(`通信エラーです(HTTP ${res.status})`);
-    }
-    const data=await res.json();
+    const data=await callGemini(
+      [{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:ocrPrompt()}]}],
+      {responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{items:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER'},unit:{type:'STRING'},price:{type:'NUMBER',nullable:true},expiryGuess:{type:'STRING',nullable:true},location:{type:'STRING'},genre:{type:'STRING'}},required:['name','qty','unit','genre']}},total:{type:'NUMBER',nullable:true}},required:['items']}}
+    );
     let items=[],total=null;
     try{
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -1364,21 +1347,10 @@ function buildMenuPrompt(wish,frame){
   ].join('\n');
 }
 async function callGeminiForMenu(wish,frame){
-  const key=loadGeminiKey();
-  if(!key)throw new Error('Gemini APIキーが未設定のため通常の提案を使用します。');
-  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      contents:[{parts:[{text:buildMenuPrompt(wish,frame)}]}],
-      generationConfig:{responseMimeType:'application/json',responseSchema:MENU_RESPONSE_SCHEMA}
-    })
-  });
-  if(!res.ok){
-    if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
-    if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
-    throw new Error(`通信エラーです(HTTP ${res.status})`);
-  }
-  const data=await res.json();
+  const data=await callGemini(
+    [{parts:[{text:buildMenuPrompt(wish,frame)}]}],
+    {responseMimeType:'application/json',responseSchema:MENU_RESPONSE_SCHEMA}
+  );
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
   const parsed=JSON.parse(text);
   if(!parsed||!Array.isArray(parsed.days))throw new Error('AIの提案を解析できませんでした。');
@@ -1584,27 +1556,16 @@ function recipeOcrPrompt(){
 }
 let recipeOcrItems=[];
 async function runRecipeOcr(file){
-  const key=loadGeminiKey();
-  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
   const btn=document.getElementById('recipeOcrBtn');
   const orig=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='⏳読み取り中…';}
   try{
     const dataUrl=await compressImage(file);   // 画像は保存せず抽出のみに利用
     const base64=(dataUrl.split(',')[1])||'';
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:recipeOcrPrompt()}]}],
-        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{recipes:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},cat:{type:'STRING'},time:{type:'NUMBER'},ings:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER',nullable:true},unit:{type:'STRING'}},required:['name','unit']}},steps:{type:'ARRAY',items:{type:'STRING'}}},required:['name','ings','steps']}}},required:['recipes']}}
-      })
-    });
-    if(!res.ok){
-      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
-      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
-      throw new Error(`通信エラーです(HTTP ${res.status})`);
-    }
-    const data=await res.json();
+    const data=await callGemini(
+      [{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:recipeOcrPrompt()}]}],
+      {responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{recipes:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},cat:{type:'STRING'},time:{type:'NUMBER'},ings:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},qty:{type:'NUMBER',nullable:true},unit:{type:'STRING'}},required:['name','unit']}},steps:{type:'ARRAY',items:{type:'STRING'}}},required:['name','ings','steps']}}},required:['recipes']}}
+    );
     let recipes=[];
     try{
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -1825,27 +1786,16 @@ function dealsOcrPrompt(){
 }
 let dealItems=[];
 async function runDealsOcr(file){
-  const key=loadGeminiKey();
-  if(!key){toast('先に設定タブでGemini APIキーを登録してください。🔑');switchTab('settings');return;}
   const zone=document.getElementById('dealsDropZone');
   const orig=zone?zone.innerHTML:'';
   if(zone)zone.innerHTML='⏳ 読み取り中…';
   try{
     const dataUrl=await compressImage(file);   // チラシ画像自体は保存しない(抽出結果のみ利用)
     const base64=(dataUrl.split(',')[1])||'';
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:dealsOcrPrompt()}]}],
-        generationConfig:{responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{deals:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},price:{type:'NUMBER',nullable:true},unit:{type:'STRING',nullable:true},validUntil:{type:'STRING',nullable:true}},required:['name']}}},required:['deals']}}
-      })
-    });
-    if(!res.ok){
-      if(res.status===429)throw new Error('無料枠の上限です。1分待ってから再試行してください。');
-      if(res.status===401||res.status===403)throw new Error('APIキーを確認してください。');
-      throw new Error(`通信エラーです(HTTP ${res.status})`);
-    }
-    const data=await res.json();
+    const data=await callGemini(
+      [{parts:[{inline_data:{mime_type:'image/jpeg',data:base64}},{text:dealsOcrPrompt()}]}],
+      {responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{deals:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},price:{type:'NUMBER',nullable:true},unit:{type:'STRING',nullable:true},validUntil:{type:'STRING',nullable:true}},required:['name']}}},required:['deals']}}
+    );
     let deals=[];
     try{
       const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
@@ -2505,7 +2455,6 @@ function renderAll(){
   if(state.current)renderSuggestion();
   suggestShowStage(state.current&&state.current.length?'result':'input');
   togglePlanSection(!!state.plan);   // 既に作成済みのまとめ献立があれば開いた状態で表示する
-  const gk=document.getElementById('gemini-key');if(gk)gk.value=loadGeminiKey();
 }
 function initPlanUI(){
   const el=document.getElementById('planDays');

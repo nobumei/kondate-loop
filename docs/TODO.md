@@ -25,6 +25,7 @@ AIは必ずここから1タスク選んで着手し、完了時に [x] を付け
 
 ## P2 — 拡張(Phase 2判断後)
 - [x] レシートOCR(Claude API vision + 確認UI) → API_DESIGN.md 参照 (Gemini API無料枠+確認UIで実装 2026-07-07。Claude API案は同ファイルのOCRパイプライン節を参照)
+- [x] Geminiキーをクライアントから撤去し、Supabase Edge Function(`{SYNC_URL}/functions/v1/gemini`)のsecret経由に統一(改修E, v1.13, 2026-07-15)。設定タブのキー入力UI・loadGeminiKey/saveGeminiKeyを削除、4か所の直fetchを共通ヘルパ`callGemini()`に統一
 - [ ] 栄養バランス表示(主要5群の充足ざっくり判定)
 - [x] 特売食材の提案スコア加点(チラシOCR取り込み+scoreRecipe加点+買い物リスト/提案チップへのバッジ表示で実装 2026-07-10)
 - [x] 家族共有(あいことば方式の軽量同期で実装 2026-07-07。本格的なAuth移行はPhase 3のまま)
@@ -42,3 +43,4 @@ AIは必ずここから1タスク選んで着手し、完了時に [x] を付け
 ## バグ・既知の制約
 - [ ] HEICはSafari以外のブラウザで読めない場合あり → heic2anyのCDN導入を検討
 - [ ] localStorage上限(約5MB)によりレシートは実質40〜60枚程度 → 古い画像の自動削除提案
+- [ ] `supabase/functions/gemini` が実環境(Supabase Project)にデプロイ済みか、`GEMINI_API_KEY` secretが登録済みかを実機で最終確認する(コード側は改修Eで完了。デプロイ手順はsupabase/functions/gemini/index.ts冒頭のコメント参照)

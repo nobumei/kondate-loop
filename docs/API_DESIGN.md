@@ -15,12 +15,13 @@
 | POST | /api/receipts/:id/ocr | OCRジョブ起動(下記) |
 | GET | /api/suggest?date=... | 献立提案(ロジックはサーバー移植) |
 
-## OCRパイプライン(Phase 2)
-1. 画像アップロード → Storage
-2. OCR: Claude API (vision) にレシート画像 + 抽出プロンプト
-   出力JSON: `{items:[{name, qty, unit, price, expiryGuess}]}`
-3. フロントで確認・補正UI → 確定分のみ在庫にINSERT
-※ 「自動反映」ではなく「確認付き反映」を必ず挟む(誤読対策)
+## OCRパイプライン(Edge Functionプロキシで実装済み、2026-07-15)
+実装は当初案(Claude API vision + サーバーStorage)ではなく、Gemini API + Supabase Edge Functionプロキシで完了。
+1. 画像はクライアントでcanvas圧縮 → dataURL(Storage未使用、画像自体は保存しない。レシートのみ端末localStorageに保持)
+2. OCR: クライアントの`callGemini(contents, generationConfig)`(index.html) → `POST {SYNC_URL}/functions/v1/gemini` → Edge Function(`supabase/functions/gemini/index.ts`)がsecret `GEMINI_API_KEY` を付与してGemini APIへ中継。レスポンスはステータス込みで透過
+   出力JSON(レシート): `{items:[{name, qty, unit, price, expiryGuess, location, genre}], total}`(チラシ・レシピOCRは別スキーマ。DATA_MODEL.md参照)
+3. フロントで確認・補正UI → 確定分のみ在庫/state.deals/state.recipesにINSERT
+※ 「自動反映」ではなく「確認付き反映」を必ず挟む(誤読対策)方針は当初案どおり維持
 
 ## 認証・共有(Phase 3)
 - Supabase Auth(メールリンク) + household_id で世帯単位共有

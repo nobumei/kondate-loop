@@ -107,15 +107,15 @@ interface SyncConfig {
 - 競合は whole-blob の last-write-wins。push前に pull-before-push で新しいremoteを取り込む。
 - エクスポートJSONには SyncConfig を含めない(別キーのため自然に分離される)。
 
-## レシートOCR設定キー `kondate-loop-gemini` (v1.4で追加)
+## レシートOCR設定キー `kondate-loop-gemini` (v1.4で追加、v1.13で非推奨)
 
 ```typescript
 // localStorage.getItem('kondate-loop-gemini') は文字列そのもの(Gemini APIキー)。JSON化しない。
 ```
 
-- 値は Gemini APIキーの生文字列(空なら未設定)。設定タブの「レシートOCR(Gemini)」から保存/削除する。
-- `kondate-loop-sync` と同様に端末ローカル専用: 家族同期(stripForSync)対象外、エクスポートJSON(state由来)にも含まれない(別キーのため自然に分離される)。
-- OCR抽出結果は一時的な `ocrItems`(メモリ内のみ)を経由し、確認モーダルでチェックした品だけが `state.inventory` に追加される。抽出結果自体はlocalStorageに保存しない。
+- **v1.13で非推奨・未使用。** クライアントからGeminiキー入力UI自体を撤去し、Geminiキーは Supabase Edge Function(`{SYNC_URL}/functions/v1/gemini`、実体は `supabase/functions/gemini/index.ts`)のサーバー側secret(`GEMINI_API_KEY`)としてのみ保持する。アプリは `callGemini(contents, generationConfig)` からこのEdge Functionへ `syncHeaders()` 付きでPOSTするだけで、クライアントはGeminiキーを一切扱わない。
+- 既存端末に残っている `kondate-loop-gemini` の値は読み書きされなくなるが、削除コードは追加しない(残置しても実害なし)。`loadGeminiKey`/`saveGeminiKey`/`GEMINI_KEY_STORAGE` はindex.htmlから削除済み。
+- OCR抽出結果は一時的な `ocrItems`(メモリ内のみ)を経由し、確認モーダルでチェックした品だけが `state.inventory` に追加される。抽出結果自体はlocalStorageに保存しない(この方針はv1.13でも不変)。
 
 ## チュートリアル既読フラグ `kondate-loop-tutorial-seen` (v1.5で追加)
 
@@ -157,6 +157,7 @@ interface SyncConfig {
 | v1.10 | AppStateスキーマ変更なし。UI改修: チュートリアルを3枚スライド化+モバイルでの「はじめる」押下不可を修正、設定タブを下部ナビから廃止しヘッダー☰メニューへ集約(下部ナビ4タブ化)、設定タブの「買い物記録」UI削除(`settings.shoppingLog`フィールドは後方互換のため存置・非推奨)、調理モードの読み上げに材料の分量(大さじ/小さじ/g/個)を追加 | 2026-07-13 |
 | v1.11 | AppStateスキーマ変更なし。レシピOCR(Gemini)を追加: 本・Kindle・雑誌・手書きの画像から複数レシピ(名前/カテゴリ/調理時間/材料/作り方)を抽出→確認・編集モーダルでチェックした分だけseed:falseのRecipeとしてstate.recipesに追加(画像自体は保存しない)。searchLinks()をGoogle検索経由からクラシル/DELISH KITCHENのサイト内検索への直リンクに変更 | 2026-07-14 |
 | v1.12 | AppStateスキーマ変更なし。UI改修: 単発献立提案の結果画面に「🗑 クリア」ボタン追加(state.current=nullで入力画面に戻る)、買い物タブに一括操作バー追加(すべて選択/解除トグル・選択を在庫に追加・選択を削除)、BUILTIN_NORM_DICTをひらがな正規化方針で拡充(20組→128組・63食材)、UI文言「食材名の辞書」→「食材辞書」に変更(関数名・キー不変) | 2026-07-14 |
+| v1.13 | AppStateスキーマ変更なし。Geminiキーをクライアントから撤去しSupabase Edge Function(`supabase/functions/gemini/index.ts`、secret=GEMINI_API_KEY)経由の呼び出しに統一。設定タブのGemini APIキー入力カードを削除、`loadGeminiKey`/`saveGeminiKey`/`GEMINI_KEY_STORAGE`をindex.htmlから削除、共通ヘルパ`callGemini()`に4か所(レシートOCR/チラシOCR/献立生成/レシピOCR)の直fetchを統一。`kondate-loop-gemini`キーは非推奨(未使用・残置) | 2026-07-15 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。
