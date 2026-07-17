@@ -95,6 +95,7 @@ interface Settings {
   stores: { name: string; url: string; memo: string }[];
   normDict: Record<string,string>;  // v1.5: 食材名の正規化辞書(別名→正規名)。ユーザー登録分のみ。家族同期対象
   shelfLife: Record<string, Partial<Record<'冷蔵'|'冷凍'|'常温', number>>>;  // v1.14: 食材ごとの賞味期限デフォルトのユーザー上書き(canonical正規名→保存場所別の日数)。家族同期対象
+  shareMyRecipes: boolean;  // v1.20: 自作(手動作成)レシピを公開レシピプールへ自動共有するか。既定true。家族同期対象
 }
 ```
 
@@ -155,6 +156,19 @@ interface SyncConfig {
 - 提案画面(単発・まとめ)の「要望」入力(音声/テキスト)とAIの提案理由は、在庫チップの手動補正(`stockOverride`, v1.6)と同様にグローバル変数(`suggestReason`/`planReason`)で保持するセッション内のみの一時値。`state`には含まれず、保存もされない(リロードで消える)。
 - 調理モードの現在レシピ・工程番号は `cookState`(グローバル変数、非永続)で管理し、`state`やAppStateスキーマには一切影響しない。
 
+## 公開レシピプール「みんなの定番」(v1.20で追加)
+
+- `public.recipes`(Supabase、`supabase/recipes_pool.sql`でデプロイ済み)は**家族同期(`kondate-loop-sync`/`state`)とは完全に別のテーブル・別のライフサイクル**を持つ、全ユーザー共通のレシピプール。個人情報は一切含まない(氏名・メール・端末情報なし)。
+- RLSで直接テーブルアクセスは禁止。読み取りは`status='active'`のみ匿名可、書き込みは検証付きRPC(`recipe_contribute`/`recipe_flag`)経由のみ。すべて`syncHeaders()`の公開(publishable)キーで呼ぶ(秘密キーは使わない)。
+- 列: `id,name,name_key(重複統合キー),cat,cuisine,time_min,ings(jsonb),steps(jsonb),source('user'|'ai'),contributor,use_count,flags,status('active'|'hidden')`。3件通報(`flags>=3`)で自動的に`status='hidden'`になり一覧・提案から除外される。
+- アプリ側ヘルパ(index.html): `poolFetchTop(limit=60)`(人気順取得・失敗はthrow)、`poolContribute(recipe,source)`(貢献・ベストエフォートで例外を握りつぶす)、`poolFlag(id)`(通報)。UIは☰メニュー「🍲 みんなの定番」→`poolModal`(`openPoolModal`/`renderPoolModal`/`importPoolRecipe`/`flagPoolRecipe`)。
+- **共有されるのはsaveRecipe()での手動新規作成のみ**(`state.settings.shareMyRecipes`がtrueの場合)。レシピの編集、およびレシピOCR(`addRecipeOcrItemsToState`、本・Kindle・雑誌からの取り込み)は著作権配慮のため**絶対に**共有しない。取り込み(みんなの定番→自分のレシピ)は`normalizeName(name)`一致で重複チェックし、ローカルに同名があれば二重追加しない。
+
+## 端末ローカル貢献者ID `kondate-loop-cid` (v1.20で追加)
+
+- 値はUUID文字列(`crypto.randomUUID()`で生成、`poolCid()`)。公開レシピプールへの貢献時に`contributor`として送るための使い捨てID。個人情報を含まない。
+- `kondate-loop-v1`とは別キーのため、家族同期・エクスポート/インポートJSONの対象外(端末ローカル専用。`kondate-loop-tutorial-seen`と同じ扱い)。
+
 ## マイグレーションルール
 - スキーマ変更時は `load()` 内で旧→新変換し、この表に追記する。
 
@@ -175,6 +189,7 @@ interface SyncConfig {
 | v1.13 | AppStateスキーマ変更なし。Geminiキーをクライアントから撤去しSupabase Edge Function(`supabase/functions/gemini/index.ts`、secret=GEMINI_API_KEY)経由の呼び出しに統一。設定タブのGemini APIキー入力カードを削除、`loadGeminiKey`/`saveGeminiKey`/`GEMINI_KEY_STORAGE`をindex.htmlから削除、共通ヘルパ`callGemini()`に4か所(レシートOCR/チラシOCR/献立生成/レシピOCR)の直fetchを統一。`kondate-loop-gemini`キーは非推奨(未使用・残置) | 2026-07-15 |
 | v1.14 | Settings.shelfLife追加、migrate()で`{}`補完(家族同期対象)。BUILTIN_SHELF_LIFE(食材ごとの賞味期限デフォルト、63食材)を新設。在庫追加の全経路(手動追加・OCR確認モーダル・買い物→在庫)で保存名をnormalizeName()で正規化するよう統一(手動追加が唯一未正規化だった)。inStock()に完全一致優先+短い正規名(2文字以下)の部分一致誤爆防止を追加。食材辞書モーダルを組み込み+ユーザーの全63正規名一覧+検索+賞味期限編集UIに刷新 | 2026-07-15 |
 | v1.15 | AppStateスキーマ変更なし。在庫追加の全経路(手動追加・OCR確認モーダル・買い物→在庫)を共通関数`addToInventory()`経由に統一し、同一食材(normalizeName)・同一unit・同一locationの既存行があれば合算(qty加算、expiryは近い方、memoは非空優先)する重複合算を追加。既存の重複データ用に`mergeDuplicateStock()`(在庫タブの「🔗 重複をまとめる」ボタン)を新設。在庫タブに一括操作バー(すべて選択/解除・選択を削除・すべて削除。locFilter適用中は表示中の在庫のみ対象)を追加。レシートOCR/チラシOCR/レシピOCR確認モーダル共通のCSS(`.ocr-item`/`.ocr-grid`)にmin-width:0等を追加し375px幅での入力欄はみ出しを修正。読み取り済みレシート(`r.items`あり)は「✓ 読み取り済み」ボタンからレビュー用モーダル(画像+内容の閲覧、再読み取りボタン)を開けるように変更 | 2026-07-15 |
+| v1.20 | Settings.shareMyRecipes追加、migrate()で`true`補完(家族同期対象)。公開レシピプール「みんなの定番」(`public.recipes`、家族同期とは別テーブル・別ライフサイクル・個人情報なし)を追加。端末ローカル`kondate-loop-cid`キー新設(貢献者ID・AppState自体は不変・非同期) | 2026-07-17 |
 
 ## 在庫マッチングの仕様
 `inStock(ingName)`: 両辺を `normalizeName()` で正規化してから部分一致(`includes`)を双方向で判定する。

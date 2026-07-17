@@ -206,5 +206,18 @@
 5. OSまたはブラウザの「視差効果を減らす」設定(prefers-reduced-motion: reduce)を有効にした状態で提案を実行→ 絵文字のバウンスアニメーションは停止するが、状況メッセージの巡回自体は継続すること
 6. 提案完了後、コンソールにアプリ由来のエラーが出ていないこと。`aiLoadingTimer`がオーバーレイを閉じた後は`null`になっている(clearIntervalが確実に呼ばれ多重起動しないこと)
 
+## v1.20 機能テスト(公開レシピプール「みんなの定番」)
+1. 献立タブ「＋ レシピを追加」で新規レシピ(手動作成)を保存→ `window.fetch`をモックしてリクエストを確認→ `POST {SYNC_URL}/rest/v1/rpc/recipe_contribute` が1回発火し、bodyの`p.source`が`'user'`、`p.name`が保存した料理名、`p.contributor`が空でない文字列であること
+2. 既存レシピを「✏️」から編集して保存→ `recipe_contribute`へのリクエストが発生しないこと(新規作成時のみ共有される)
+3. 設定タブ(☰→⚙️設定)「🍲 みんなの定番プール」の「みんなと共有する」トグルをOFFにしてから新規レシピを保存→ `recipe_contribute`へのリクエストが発生しないこと。OFFはリロード後も保持される(localStorageに保存されている)こと
+4. 献立タブ「📷 本・画面からレシピを取り込む」でレシピOCRを実行し確認モーダルで追加(`addRecipeOcrItemsToState`)→ 共有トグルがONの状態でも `recipe_contribute` へのリクエストが**一切発生しない**こと(著作権配慮。最重要項目)。追加されたレシピ自体は`state.recipes`に`seed:false`で通常どおり反映されること
+5. ヘッダー☰→「🍲 みんなの定番」→ `poolFetchTop`をモックした状態でモーダルを開く→ ローディング表示の後、人気順(use_count降順)のレシピカード一覧(名前・区分・料理ジャンル・約◯分・人気度・材料の先頭数個)が表示されること。取得失敗時(fetchをエラーでモック)はエラーメッセージが表示され、アプリがクラッシュしないこと
+6. 一覧の「＋ 取り込む」→ そのレシピがRecipe形(id/name/cat/time/ings/steps/favorite:false/freqDays:14/rating:0/memo:''/lastCooked:null/seed:false)で`state.recipes`に追加され、レシピ一覧に反映されること(保存・再描画・トースト)
+7. 既に同名(`normalizeName`一致)のレシピがローカルにある状態でモーダルを開く→ そのカードが「✓ 追加済み」のdisabledボタンで表示され、タップしても二重追加されないこと
+8. 一覧の「🚩 通報」→ `poolFlag`(`rpc/recipe_flag`、body `{"p_id":"<uuid>"}`)が1回だけ呼ばれ、「通報しました。ありがとうございます。」がトースト表示され、そのカードのボタンが「通報済み」でdisabledになること。連続でタップしても2回目以降はリクエストが発火しないこと
+9. localStorageの`kondate-loop-cid`に貢献者ID(UUID形式)が保存されており、`state`(`kondate-loop-v1`)のJSON文字列にはそのIDが含まれない(=家族同期・エクスポートJSON対象外)こと。ページをリロードしても同じIDが再利用される(毎回新規生成されない)こと
+10. 旧データ(`state.settings.shareMyRecipes`キーなし)を`migrate()`に通す→ `true`で補完されエラーが出ないこと
+11. JS構文チェック(`node --check`相当)・ブラウザのコンソールにアプリ由来のエラーが出ていないこと。実バックエンドへの疎通確認は任意(モックで代替可)
+
 ## 端末マトリクス
 iOS Safari(最優先) / Android Chrome / PC Chrome
